@@ -532,16 +532,21 @@ async function swap(
         );
         console.log(allowance);
 
-        let token0approval = checkTokenIsApproved(
+        let token0AmountToApprove = exactIn
+          ? inputAmount.raw.toString()
+          : slippageAdjustedAmount;
+
+        let token0approval = await checkTokenIsApproved(
           token0Address,
-          slippageAdjustedAmount,
+          token0AmountToApprove,
           library,
           account
         );
+        console.log(token0approval);
 
         if (!token0approval) {
           console.log("Not enough allowance");
-          setApproveAmount(slippageAdjustedAmount);
+          setApproveAmount(token0AmountToApprove);
           setNeedApprove(true);
           return new ACYSwapErrorStatus("Need approve");
         }
