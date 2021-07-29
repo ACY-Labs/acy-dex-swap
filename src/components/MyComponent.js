@@ -12,6 +12,7 @@ import {
   computeTradePriceBreakdown,
   getUserTokenAmount,
   getUserTokenAmountExact,
+  INITIAL_ALLOWED_SLIPPAGE,
 } from "../utils";
 import { Form, Button, Alert, Dropdown } from "react-bootstrap";
 import ERC20ABI from "../abis/ERC20.json";
@@ -35,8 +36,6 @@ import {
 import { MaxUint256 } from "@ethersproject/constants";
 import { BigNumber } from "@ethersproject/bignumber";
 import { parseUnits } from "@ethersproject/units";
-
-const INITIAL_ALLOWED_SLIPPAGE = 50; //bips
 
 async function approve(tokenAddress, requiredAmount, library, account) {
   if (requiredAmount === "0") {
@@ -519,25 +518,33 @@ async function swap(
       console.log(breakdownInfo);
 
       console.log("------------------ ALLOWANCE ------------------");
+      if (!token0IsETH) {
+        let allowance = await getAllowance(
+          token0Address,
+          account,
+          ROUTER_ADDRESS,
+          library,
+          account
+        );
 
-      let allowance = await getAllowance(
-        token0Address,
-        account,
-        ROUTER_ADDRESS,
-        library,
-        account
-      );
+        console.log(
+          `Current allowance for ${trade.inputAmount.currency.symbol}:`
+        );
+        console.log(allowance);
 
-      console.log(
-        `Current allowance for ${trade.inputAmount.currency.symbol}:`
-      );
-      console.log(allowance);
+        let token0approval = checkTokenIsApproved(
+          token0Address,
+          slippageAdjustedAmount,
+          library,
+          account
+        );
 
-      if (allowance.lt(BigNumber.from(slippageAdjustedAmount))) {
-        console.log("Not enough allowance");
-        setApproveAmount(slippageAdjustedAmount);
-        setNeedApprove(true);
-        return new ACYSwapErrorStatus("Need approve");
+        if (!token0approval) {
+          console.log("Not enough allowance");
+          setApproveAmount(slippageAdjustedAmount);
+          setNeedApprove(true);
+          return new ACYSwapErrorStatus("Need approve");
+        }
       }
 
       console.log("------------------ PREPARE SWAP ------------------");

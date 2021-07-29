@@ -8,12 +8,12 @@ import { parseUnits, formatUnits } from "@ethersproject/units";
 import {
   CurrencyAmount,
   ETHER,
-  Fraction,
   JSBI,
   Percent,
   TokenAmount,
-  Trade,
 } from "@uniswap/sdk";
+
+export const INITIAL_ALLOWED_SLIPPAGE = 50; //bips
 
 export const ROUTER_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
 // export const ROUTER_ADDRESS = "0xF3726d6acfeda3E73a6F2328b948834f3Af39A2B";
