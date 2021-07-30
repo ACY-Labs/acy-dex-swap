@@ -1,0 +1,736 @@
+import { useWeb3React } from "@web3-react/core";
+import { InjectedConnector } from "@web3-react/injected-connector";
+import { useState, useEffect, useCallback } from "react";
+import {
+  getRouterContract,
+  calculateGasMargin,
+  getContract,
+  isZero,
+  ROUTER_ADDRESS,
+  getAllowance,
+  ACYSwapErrorStatus,
+  approve,
+  checkTokenIsApproved,
+  computeTradePriceBreakdown,
+  getUserTokenAmount,
+  getUserTokenBalance,
+  addLiquidityGetEstimated,
+  calculateSlippageAmount,
+  INITIAL_ALLOWED_SLIPPAGE,
+} from "../utils";
+import { Form, Button, Alert, Dropdown } from "react-bootstrap";
+import ERC20ABI from "../abis/ERC20.json";
+import WETHABI from "../abis/WETH.json";
+import {
+  Token,
+  TokenAmount,
+  Pair,
+  TradeType,
+  Route,
+  Trade,
+  Fetcher,
+  Percent,
+  Router,
+  WETH,
+  ETHER,
+  CurrencyAmount,
+  InsufficientReservesError,
+  FACTORY_ADDRESS,
+} from "@uniswap/sdk";
+import { MaxUint256 } from "@ethersproject/constants";
+import { BigNumber } from "@ethersproject/bignumber";
+import { parseUnits } from "@ethersproject/units";
+
+async function addLiquidity(
+  inputToken0,
+  inputToken1,
+  allowedSlippage = INITIAL_ALLOWED_SLIPPAGE,
+  exactIn = true,
+  chainId,
+  library,
+  account,
+  setNeedApproveToken0,
+  setNeedApproveToken1,
+  setApproveAmountToken0,
+  setApproveAmountToken1,
+  setLiquidityStatus,
+  setLiquidityBreakdown,
+  setToken0ApproxAmount,
+  setToken1ApproxAmount
+) {
+  let status = await (async () => {
+    // check uniswap
+    console.log(FACTORY_ADDRESS);
+
+    let router = getRouterContract(library, account);
+
+    const {
+      address: token0Address,
+      symbol: token0Symbol,
+      decimal: token0Decimal,
+      amount: token0Amount,
+    } = inputToken0;
+    const {
+      address: token1Address,
+      symbol: token1Symbol,
+      decimal: token1Decimal,
+      amount: token1Amount,
+    } = inputToken1;
+
+    console.log(`tokenAmount0: ${token0Amount} tokenAmount1: ${token1Amount}`);
+
+    let token0IsETH = token0Symbol === "ETH";
+    let token1IsETH = token1Symbol === "ETH";
+
+    if (!inputToken0.symbol || !inputToken1.symbol)
+      return new ACYSwapErrorStatus("One or more token input is missing");
+    if (
+      exactIn &&
+      (isNaN(parseFloat(token0Amount)) || token0Amount === "0" || !token0Amount)
+    )
+      return new ACYSwapErrorStatus("Format Error");
+    if (
+      !exactIn &&
+      (isNaN(parseFloat(token1Amount)) || token1Amount === "0" || !token1Amount)
+    )
+      return new ACYSwapErrorStatus("Format Error");
+
+    console.log("token0");
+    console.log(inputToken0);
+    console.log("token1");
+    console.log(inputToken1);
+    if (token0IsETH && token1IsETH)
+      return new ACYSwapErrorStatus("Doesn't support ETH to ETH");
+
+    if (
+      (token0IsETH && token1Symbol === "WETH") ||
+      (token0Symbol === "WETH" && token1IsETH)
+    ) {
+      // UI should sync value of ETH and WETH
+      if (exactIn) setToken1ApproxAmount(token0Amount);
+      else setToken0ApproxAmount(token1Amount);
+
+      return new ACYSwapErrorStatus("Invalid pair WETH/ETH");
+    }
+    // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
+    else {
+      console.log("ADD LIQUIDITY");
+
+      console.log("------------------ CONSTRUCT TOKEN ------------------");
+      // use WETH for ETHER to work with Uniswap V2 SDK
+      const token0 = token0IsETH
+        ? WETH[chainId]
+        : new Token(chainId, token0Address, token0Decimal, token0Symbol);
+      const token1 = token1IsETH
+        ? WETH[chainId]
+        : new Token(chainId, token1Address, token1Decimal, token1Symbol);
+
+      // quit if the two tokens are equivalent, i.e. have the same chainId and address
+      if (token0.equals(token1)) return new ACYSwapErrorStatus("Equal tokens!");
+
+      // check user account balance
+      console.log("------------------ CHECK BALANCE ------------------");
+
+      let userToken0Balance = await getUserTokenAmount(
+        token0IsETH
+          ? ETHER
+          : new Token(chainId, token0Address, token0Decimal, token0Symbol),
+        account,
+        library
+      );
+
+      let userToken1Balance = await getUserTokenAmount(
+        token1IsETH
+          ? ETHER
+          : new Token(chainId, token1Address, token1Decimal, token1Symbol),
+        account,
+        library
+      );
+
+      console.log("token0 balance");
+      console.log(userToken0Balance);
+
+      console.log("token1 balance");
+      console.log(userToken1Balance);
+
+      let userHasSufficientBalance =
+        userToken0Balance.gt(parseUnits(token0Amount, token0Decimal)) &&
+        userToken1Balance.gt(parseUnits(token1Amount, token1Decimal));
+
+      // quit if user doesn't have enough balance, otherwise this will cause error
+      if (!userHasSufficientBalance)
+        return new ACYSwapErrorStatus("Not enough balance");
+
+      // get pair using our own provider
+      console.log("------------------ CONSTRUCT PAIR ------------------");
+      console.log("FETCH");
+      const pair = await Fetcher.fetchPairData(token0, token1, library).catch(
+        (e) => {
+          return new ACYSwapErrorStatus(
+            `${token0.symbol} - ${token1.symbol} pool does not exist. Creating one`
+          );
+        }
+      );
+      let noLiquidity = false;
+      if (pair instanceof ACYSwapErrorStatus) {
+        setLiquidityStatus(pair.getErrorText());
+        noLiquidity = true;
+      }
+
+      console.log("------------------ PARSE AMOUNT ------------------");
+      // convert typed in amount to BigNumbe rusing ethers.js's parseUnits then to string,
+      let parsedAmount = exactIn
+        ? new TokenAmount(token0, parseUnits(token0Amount, token0Decimal))
+        : new TokenAmount(token1, parseUnits(token1Amount, token1Decimal));
+
+      let parsedToken0Amount;
+      let parsedToken1Amount;
+
+      if (!noLiquidity) {
+        console.log("estimated dependent amount");
+        // console.log(pair.priceOf(token0).quote(inputAmount).raw.toString());
+        let dependentTokenAmount;
+        if (exactIn) {
+          dependentTokenAmount = pair.priceOf(token0).quote(parsedAmount);
+
+          let token0TokenAmount = new TokenAmount(
+            token0,
+            parseUnits(token0Amount, token0Decimal)
+          );
+
+          parsedToken0Amount =
+            token0 === ETHER
+              ? CurrencyAmount.ether(token0TokenAmount.raw)
+              : token0TokenAmount;
+
+          parsedToken1Amount =
+            token1 === ETHER
+              ? CurrencyAmount.ether(dependentTokenAmount.raw)
+              : dependentTokenAmount;
+
+          setToken1ApproxAmount(dependentTokenAmount.toExact());
+        } else {
+          dependentTokenAmount = pair.priceOf(token1).quote(parsedAmount);
+
+          let token1TokenAmount = new TokenAmount(
+            token1,
+            parseUnits(token1Amount, token1Decimal)
+          );
+
+          parsedToken0Amount =
+            token0 === ETHER
+              ? CurrencyAmount.ether(dependentTokenAmount.raw)
+              : dependentTokenAmount;
+
+          parsedToken1Amount =
+            token1 === ETHER
+              ? CurrencyAmount.ether(token1TokenAmount.raw)
+              : token1TokenAmount;
+
+          setToken0ApproxAmount(dependentTokenAmount.toExact());
+        }
+      } else {
+        if (token0Amount === "0" || token1Amount === "0") {
+          if (noLiquidity) {
+            return new ACYSwapErrorStatus(
+              "Creating a new pool, please enter both amounts"
+            );
+          }
+          return new ACYSwapErrorStatus(
+            "One field is empty, it's probably a new pool"
+          );
+        }
+
+        parsedToken0Amount = new TokenAmount(
+          token0,
+          parseUnits(token0Amount, token0Decimal)
+        );
+        parsedToken1Amount = new TokenAmount(
+          token1,
+          parseUnits(token1Amount, token1Decimal)
+        );
+      }
+
+      console.log("------------------ BREAKDOWN ------------------");
+
+      setLiquidityBreakdown(["WORKING", "CORRECTLY"]);
+
+      console.log("------------------ ALLOWANCE ------------------");
+      if (!token0IsETH) {
+        // debug
+        let token0Allowance = await getAllowance(
+          token0Address,
+          account,
+          ROUTER_ADDRESS,
+          library,
+          account
+        );
+
+        console.log(`Current allowance for ${token0Symbol}:`);
+        console.log(token0Allowance);
+
+        // end of debug
+
+        let token0approval = await checkTokenIsApproved(
+          token0Address,
+          parsedToken0Amount.raw.toString(),
+          library,
+          account
+        );
+        console.log("token 0 approved?");
+        console.log(token0approval);
+
+        if (!token0approval) {
+          console.log("Not enough allowance");
+          setApproveAmountToken0(parsedToken0Amount.raw.toString());
+          setNeedApproveToken0(true);
+          return new ACYSwapErrorStatus("Need approve");
+        }
+      }
+
+      if (!token1IsETH) {
+        // debug
+        let token1Allowance = await getAllowance(
+          token1Address,
+          account,
+          ROUTER_ADDRESS,
+          library,
+          account
+        );
+
+        console.log(`Current allowance for ${token1Symbol}:`);
+        console.log(token1Allowance);
+
+        // end of debug
+
+        console.log(
+          `Inside addLiquidity, amount needed: ${parsedToken1Amount.raw.toString()}`
+        );
+        let token1approval = await checkTokenIsApproved(
+          token1Address,
+          parsedToken1Amount.raw.toString(),
+          library,
+          account
+        );
+        console.log("token 1 approved?");
+        console.log(token1approval);
+
+        if (!token1approval) {
+          console.log("Not enough allowance for token1");
+          setApproveAmountToken1(parsedToken1Amount.raw.toString());
+          setNeedApproveToken1(true);
+          return new ACYSwapErrorStatus("Need approve");
+        }
+      }
+
+      console.log(
+        "------------------ PREPARE ADD LIQUIDITY ------------------"
+      );
+
+      console.log("parsed token 0 amount");
+      console.log(parsedToken0Amount.raw);
+      console.log("parsed token 1 amount");
+      console.log(parsedToken1Amount.raw);
+      console.log(allowedSlippage);
+      let estimate;
+      let method;
+      let args;
+      let value;
+
+      if (token0IsETH || token1IsETH) {
+        estimate = router.estimateGas.addLiquidityETH;
+        method = router.addLiquidityETH;
+        let nonETHToken = token0IsETH ? token1 : token0;
+
+        let parsedNonETHTokenAmount = token0IsETH
+          ? parsedToken1Amount
+          : parsedToken0Amount;
+
+        let minETH = token0IsETH
+          ? calculateSlippageAmount(
+              parsedToken0Amount,
+              noLiquidity ? 0 : allowedSlippage
+            )[0].toString()
+          : calculateSlippageAmount(
+              parsedToken1Amount,
+              noLiquidity ? 0 : allowedSlippage
+            )[0].toString();
+
+        args = [
+          nonETHToken.address,
+          parsedNonETHTokenAmount.raw.toString(),
+          calculateSlippageAmount(
+            parsedNonETHTokenAmount,
+            noLiquidity ? 0 : allowedSlippage
+          )[0].toString(),
+          minETH,
+          account,
+          `0x${(Math.floor(new Date().getTime() / 1000) + 60).toString(16)}`,
+        ];
+        value = BigNumber.from(
+          (token1IsETH ? parsedToken1Amount : parsedToken0Amount).raw.toString()
+        );
+
+        console.log(value);
+      } else {
+        estimate = router.estimateGas.addLiquidity;
+        method = router.addLiquidity;
+        args = [
+          token0Address,
+          token1Address,
+          parsedToken0Amount.raw.toString(),
+          parsedToken1Amount.raw.toString(),
+          calculateSlippageAmount(
+            parsedToken0Amount,
+            noLiquidity ? 0 : allowedSlippage
+          )[0].toString(),
+          calculateSlippageAmount(
+            parsedToken1Amount,
+            noLiquidity ? 0 : allowedSlippage
+          )[0].toString(),
+          account,
+          `0x${(Math.floor(new Date().getTime() / 1000) + 60).toString(16)}`,
+        ];
+        value = null;
+      }
+
+      console.log(args);
+
+      let result = await estimate(...args, value ? { value } : {}).then(
+        (estimatedGasLimit) =>
+          method(...args, {
+            ...(value ? { value } : {}),
+            gasLimit: calculateGasMargin(estimatedGasLimit),
+          }).catch((e) => {
+            return new ACYSwapErrorStatus("Error in transaction");
+          })
+      );
+
+      return result;
+    }
+  })();
+  if (status instanceof ACYSwapErrorStatus) {
+    setLiquidityStatus(status.getErrorText());
+  } else {
+    console.log(status);
+    setLiquidityStatus("OK");
+  }
+}
+
+const LiquididityComponent = () => {
+  let [token0, setToken0] = useState(null);
+  let [token1, setToken1] = useState(null);
+  let [token0Balance, setToken0Balance] = useState("0");
+  let [token1Balance, setToken1Balance] = useState("0");
+  let [token0Amount, setToken0Amount] = useState("0");
+  let [token1Amount, setToken1Amount] = useState("0");
+  let [liquidityBreakdown, setLiquidityBreakdown] = useState();
+  let [liquidityStatus, setLiquidityStatus] = useState();
+  let [needApproveToken0, setNeedApproveToken0] = useState(false);
+  let [needApproveToken1, setNeedApproveToken1] = useState(false);
+  let [approveAmountToken0, setApproveAmountToken0] = useState("0");
+  let [approveAmountToken1, setApproveAmountToken1] = useState("0");
+
+  let [token0ApproxAmount, setToken0ApproxAmount] = useState("0");
+  let [token1ApproxAmount, setToken1ApproxAmount] = useState("0");
+  let [exactIn, setExactIn] = useState(true);
+
+  const individualFieldPlaceholder = "Enter amount";
+  const dependentFieldPlaceholder = "Estimated value";
+
+  const { account, chainId, library, activate } = useWeb3React();
+  const injected = new InjectedConnector({
+    supportedChainIds: [1, 3, 4, 5, 42, 80001],
+  });
+
+  //   let supportedTokens = [
+  //     {
+  //       symbol: "USDC",
+  //       address: "0xeb8f08a975Ab53E34D8a0330E0D34de942C95926",
+  //       decimal: 6,
+  //     },
+  //     {
+  //       symbol: "ETH",
+  //       address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
+  //       decimal: 18,
+  //     },
+  //     {
+  //       symbol: "WETH",
+  //       address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
+  //       decimal: 18,
+  //     },
+  //     {
+  //       symbol: "UNI",
+  //       address: "0x03e6c12ef405ac3f642b9184eded8e1322de1a9e",
+  //       decimal: 18,
+  //     },
+  //     {
+  //       symbol: "DAI",
+  //       address: "0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea",
+  //       decimal: 18,
+  //     },
+  //     {
+  //       symbol: "cDAI",
+  //       address: "0x6d7f0754ffeb405d23c51ce938289d4835be3b14",
+  //       decimal: 8,
+  //     },
+  //     {
+  //       symbol: "WBTC",
+  //       address: "0x577d296678535e4903d59a4c929b718e1d575e0a",
+  //       decimal: 8,
+  //     },
+  //   ];
+
+  let supportedTokens = [
+    {
+      symbol: "AAA",
+      address: "0xFAd5a0a35Efd7DFf7A6d87f517D202241F3Fe11e",
+      decimal: 18,
+    },
+    {
+      symbol: "BBB",
+      address: "0x59e936E7e1130CFfD1E4595F588659A8cFadB9E0",
+      decimal: 18,
+    },
+    {
+      symbol: "CCC",
+      address: "0x354F2Ed9691E445A04a1A1B45166Fd87522ad241",
+      decimal: 18,
+    },
+  ];
+
+  useEffect(() => {
+    activate(injected);
+  }, []);
+
+  let t0Changed = useCallback(async () => {
+    if (!token0 || !token1) return;
+
+    let estimated = await addLiquidityGetEstimated(
+      {
+        ...token0,
+        amount: token0Amount,
+      },
+      {
+        ...token1,
+        amount: token1Amount,
+      },
+
+      true,
+      chainId,
+      library
+    );
+
+    if (!estimated) estimated = 0;
+
+    setToken1Amount(estimated);
+    setToken1ApproxAmount(estimated);
+  }, [token0, token1, token0Amount, token1Amount, chainId, library]);
+
+  useEffect(() => {
+    t0Changed();
+  }, [token0Amount, t0Changed]);
+
+  let checkToken0ApprovalStatus = useCallback(async () => {
+    if (token0 && token1) {
+      let approved = await checkTokenIsApproved(
+        token0.address,
+        parseUnits(token0Amount, token0.decimals),
+        library,
+        account
+      );
+
+      if (approved) {
+        setNeedApproveToken0(false);
+      }
+
+      console.log(`Token 0 is approved? ${approved}`);
+    }
+  });
+
+  let checkToken1ApprovalStatus = useCallback(async () => {
+    if (token0 && token1) {
+      let approved = await checkTokenIsApproved(
+        token1.address,
+        parseUnits(token0Amount, token0.decimals),
+        library,
+        account
+      );
+
+      if (approved) {
+        setNeedApproveToken1(false);
+      }
+
+      console.log(`Token 1 is approved? ${approved}`);
+    }
+  });
+
+  return (
+    <div>
+      <Alert variant="success">
+        <Alert.Heading>Hey, nice to see you</Alert.Heading>
+        <p>{account}</p>
+      </Alert>
+
+      <Form className="p-5">
+        <Form.Group className="mb-3" controlId="formBasicEmail">
+          <Dropdown>
+            <Dropdown.Toggle variant="success" id="dropdown-basic">
+              {(token0 && token0.symbol) || "In token"}
+            </Dropdown.Toggle>
+
+            <Dropdown.Menu>
+              {supportedTokens.map((token, index) => (
+                <Dropdown.Item
+                  key={index}
+                  onClick={async () => {
+                    setToken0(token);
+                    setToken0Balance(
+                      await getUserTokenBalance(
+                        token,
+                        chainId,
+                        account,
+                        library
+                      )
+                    );
+                  }}
+                >
+                  {token.symbol}
+                </Dropdown.Item>
+              ))}
+            </Dropdown.Menu>
+          </Dropdown>
+          <Form.Control
+            value={token0ApproxAmount}
+            placeholder={
+              exactIn ? individualFieldPlaceholder : dependentFieldPlaceholder
+            }
+            onChange={(e) => {
+              setToken0ApproxAmount(e.target.value);
+              setToken0Amount(e.target.value);
+              setExactIn(true);
+            }}
+          />
+          <small>Balance: {token0Balance}</small>
+        </Form.Group>
+
+        <Form.Group className="mb-3" controlId="formBasicPassword">
+          <Dropdown>
+            <Dropdown.Toggle variant="success" id="dropdown-basic">
+              {(token1 && token1.symbol) || "Out token"}
+            </Dropdown.Toggle>
+
+            <Dropdown.Menu>
+              {supportedTokens.map((token, index) => (
+                <Dropdown.Item
+                  key={index}
+                  onClick={async () => {
+                    setToken1(token);
+                    setToken1Balance(
+                      await getUserTokenBalance(
+                        token,
+                        chainId,
+                        account,
+                        library
+                      )
+                    );
+                  }}
+                >
+                  {token.symbol}
+                </Dropdown.Item>
+              ))}
+            </Dropdown.Menu>
+          </Dropdown>
+          <Form.Control
+            value={token1ApproxAmount}
+            placeholder={
+              exactIn ? dependentFieldPlaceholder : individualFieldPlaceholder
+            }
+            onChange={(e) => {
+              setToken1ApproxAmount(e.target.value);
+              setToken1Amount(e.target.value);
+              setExactIn(false);
+            }}
+          />
+          <small>Balance: {token1Balance}</small>
+        </Form.Group>
+        <Alert variant="danger">
+          Slippage tolerance: {INITIAL_ALLOWED_SLIPPAGE} bips (0.01%)
+        </Alert>
+        <Alert variant="primary">
+          {liquidityBreakdown &&
+            liquidityBreakdown.map((info) => <p>{info}</p>)}
+        </Alert>
+        <Alert variant="info">Liquidity status: {liquidityStatus}</Alert>
+
+        {/* APPROVAL CHECKER BUTTONS */}
+        <Button
+          disabled={!needApproveToken0}
+          onClick={checkToken0ApprovalStatus}
+        >
+          Refresh to check {token0 && token0.symbol} approval status
+        </Button>
+        <Button
+          disabled={!needApproveToken1}
+          onClick={checkToken1ApprovalStatus}
+        >
+          Refresh to check {token1 && token1.symbol} approval status
+        </Button>
+
+        {/* APPROVE BUTTONS */}
+        <Button
+          variant="warning"
+          disabled={!needApproveToken0}
+          onClick={() => {
+            approve(token0.address, approveAmountToken0, library, account);
+          }}
+        >
+          Approve {token0 && token0.symbol}
+        </Button>
+        <Button
+          variant="warning"
+          disabled={!needApproveToken1}
+          onClick={() => {
+            approve(token1.address, approveAmountToken1, library, account);
+          }}
+        >
+          Approve {token1 && token1.symbol}
+        </Button>
+
+        <Button
+          disabled={needApproveToken0 && needApproveToken1}
+          variant="success"
+          onClick={() => {
+            addLiquidity(
+              {
+                ...token0,
+                amount: token0Amount,
+              },
+              {
+                ...token1,
+                amount: token1Amount,
+              },
+              INITIAL_ALLOWED_SLIPPAGE,
+              exactIn,
+              chainId,
+              library,
+              account,
+              setNeedApproveToken0,
+              setNeedApproveToken1,
+              setApproveAmountToken0,
+              setApproveAmountToken1,
+              setLiquidityStatus,
+              setLiquidityBreakdown,
+              setToken0ApproxAmount,
+              setToken1ApproxAmount
+            );
+          }}
+        >
+          Add Liquidity
+        </Button>
+      </Form>
+    </div>
+  );
+};
+
+export default LiquididityComponent;
