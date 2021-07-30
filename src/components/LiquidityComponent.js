@@ -164,13 +164,21 @@ async function addLiquidity(
       // get pair using our own provider
       console.log("------------------ CONSTRUCT PAIR ------------------");
       console.log("FETCH");
-      const pair = await Fetcher.fetchPairData(token0, token1, library).catch(
-        (e) => {
+      // if an error occurs, because pair doesn't exists
+      const pair = await Fetcher.fetchPairData(token0, token1, library)
+        .then((pair) => {
+          console.log("token reserves");
+          console.log(pair);
+          return pair;
+        })
+        .catch((e) => {
+          console.log(e);
           return new ACYSwapErrorStatus(
             `${token0.symbol} - ${token1.symbol} pool does not exist. Creating one`
           );
-        }
-      );
+        });
+
+      console.log(pair);
       let noLiquidity = false;
       if (pair instanceof ACYSwapErrorStatus) {
         setLiquidityStatus(pair.getErrorText());
@@ -253,7 +261,18 @@ async function addLiquidity(
 
       console.log("------------------ BREAKDOWN ------------------");
 
-      setLiquidityBreakdown(["WORKING", "CORRECTLY"]);
+      if (!noLiquidity) {
+        setLiquidityBreakdown([
+          `Pool reserve: ${pair.reserve0.toExact()} ${
+            pair.token0.symbol
+          } + ${pair.reserve1.toExact()} ${pair.token1.symbol}`,
+          // noLiquidity ? "100" : `${poolTokenPercentage?.toSignificant(4)}} %`,
+        ]);
+      } else {
+        setLiquidityBreakdown(["New pool"]);
+      }
+
+      let approveStatus = 0;
 
       console.log("------------------ ALLOWANCE ------------------");
       if (!token0IsETH) {
@@ -284,25 +303,11 @@ async function addLiquidity(
           console.log("Not enough allowance");
           setApproveAmountToken0(parsedToken0Amount.raw.toString());
           setNeedApproveToken0(true);
-          return new ACYSwapErrorStatus("Need approve");
+          approveStatus += 1;
         }
       }
 
       if (!token1IsETH) {
-        // debug
-        let token1Allowance = await getAllowance(
-          token1Address,
-          account,
-          ROUTER_ADDRESS,
-          library,
-          account
-        );
-
-        console.log(`Current allowance for ${token1Symbol}:`);
-        console.log(token1Allowance);
-
-        // end of debug
-
         console.log(
           `Inside addLiquidity, amount needed: ${parsedToken1Amount.raw.toString()}`
         );
@@ -319,19 +324,33 @@ async function addLiquidity(
           console.log("Not enough allowance for token1");
           setApproveAmountToken1(parsedToken1Amount.raw.toString());
           setNeedApproveToken1(true);
-          return new ACYSwapErrorStatus("Need approve");
+          approveStatus += 2;
         }
+      }
+
+      if (approveStatus > 0) {
+        return new ACYSwapErrorStatus(
+          `Need approve ${
+            approveStatus === 1
+              ? token0Symbol
+              : approveStatus === 2
+              ? token1Symbol
+              : `${token0Symbol} and ${token1Symbol}`
+          }`
+        );
       }
 
       console.log(
         "------------------ PREPARE ADD LIQUIDITY ------------------"
       );
 
+      setLiquidityStatus("Processing add liquidity request");
       console.log("parsed token 0 amount");
       console.log(parsedToken0Amount.raw);
       console.log("parsed token 1 amount");
       console.log(parsedToken1Amount.raw);
       console.log(allowedSlippage);
+
       let estimate;
       let method;
       let args;
@@ -417,7 +436,13 @@ async function addLiquidity(
   }
 }
 
-const LiquididityComponent = () => {
+async function clearAllowance(tokenAddress, library, account) {
+  let tokenContract = getContract(tokenAddress, ERC20ABI, library, account);
+
+  await tokenContract.approve(ROUTER_ADDRESS, "0");
+}
+
+const LiquidityComponent = () => {
   let [token0, setToken0] = useState(null);
   let [token1, setToken1] = useState(null);
   let [token0Balance, setToken0Balance] = useState("0");
@@ -505,7 +530,7 @@ const LiquididityComponent = () => {
 
   let t0Changed = useCallback(async () => {
     if (!token0 || !token1) return;
-
+    if (!exactIn) return;
     let estimated = await addLiquidityGetEstimated(
       {
         ...token0,
@@ -531,48 +556,10 @@ const LiquididityComponent = () => {
     t0Changed();
   }, [token0Amount, t0Changed]);
 
-  let checkToken0ApprovalStatus = useCallback(async () => {
-    if (token0 && token1) {
-      let approved = await checkTokenIsApproved(
-        token0.address,
-        parseUnits(token0Amount, token0.decimals),
-        library,
-        account
-      );
-
-      if (approved) {
-        setNeedApproveToken0(false);
-      }
-
-      console.log(`Token 0 is approved? ${approved}`);
-    }
-  });
-
-  let checkToken1ApprovalStatus = useCallback(async () => {
-    if (token0 && token1) {
-      let approved = await checkTokenIsApproved(
-        token1.address,
-        parseUnits(token0Amount, token0.decimals),
-        library,
-        account
-      );
-
-      if (approved) {
-        setNeedApproveToken1(false);
-      }
-
-      console.log(`Token 1 is approved? ${approved}`);
-    }
-  });
-
   return (
     <div>
-      <Alert variant="success">
-        <Alert.Heading>Hey, nice to see you</Alert.Heading>
-        <p>{account}</p>
-      </Alert>
-
-      <Form className="p-5">
+      <h1>liquidity</h1>
+      <Form>
         <Form.Group className="mb-3" controlId="formBasicEmail">
           <Dropdown>
             <Dropdown.Toggle variant="success" id="dropdown-basic">
@@ -663,24 +650,9 @@ const LiquididityComponent = () => {
         </Alert>
         <Alert variant="info">Liquidity status: {liquidityStatus}</Alert>
 
-        {/* APPROVAL CHECKER BUTTONS */}
-        <Button
-          disabled={!needApproveToken0}
-          onClick={checkToken0ApprovalStatus}
-        >
-          Refresh to check {token0 && token0.symbol} approval status
-        </Button>
-        <Button
-          disabled={!needApproveToken1}
-          onClick={checkToken1ApprovalStatus}
-        >
-          Refresh to check {token1 && token1.symbol} approval status
-        </Button>
-
         {/* APPROVE BUTTONS */}
         <Button
           variant="warning"
-          disabled={!needApproveToken0}
           onClick={() => {
             approve(token0.address, approveAmountToken0, library, account);
           }}
@@ -689,16 +661,23 @@ const LiquididityComponent = () => {
         </Button>
         <Button
           variant="warning"
-          disabled={!needApproveToken1}
           onClick={() => {
             approve(token1.address, approveAmountToken1, library, account);
           }}
         >
           Approve {token1 && token1.symbol}
         </Button>
+        {/* <Button
+          variant="danger"
+          onClick={() => {
+            clearAllowance(token0.address, library, account);
+            clearAllowance(token1.address, library, account);
+          }}
+        >
+          Clear allowance
+        </Button> */}
 
         <Button
-          disabled={needApproveToken0 && needApproveToken1}
           variant="success"
           onClick={() => {
             addLiquidity(
@@ -733,4 +712,4 @@ const LiquididityComponent = () => {
   );
 };
 
-export default LiquididityComponent;
+export default LiquidityComponent;

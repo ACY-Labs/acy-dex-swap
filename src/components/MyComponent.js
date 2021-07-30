@@ -523,31 +523,16 @@ const MyComponent = () => {
     t1Changed();
   }, [token1Amount]);
 
-  let checkApprovalStatus = useCallback(async () => {
-    if (token0 && token1) {
-      let approved = await checkTokenIsApproved(
-        token0.address,
-        parseUnits(token0Amount, token0.decimals),
-        library,
-        account
-      );
-
-      if (approved) {
-        setNeedApprove(false);
-      }
-
-      console.log(`Token 0 is approved? ${approved}`);
-    }
-  });
-
   return (
     <div>
+      <h1>swap</h1>
+
       <Alert variant="success">
         <Alert.Heading>Hey, nice to see you</Alert.Heading>
         <p>{account}</p>
       </Alert>
 
-      <Form className="p-5">
+      <Form>
         <Form.Group className="mb-3" controlId="formBasicEmail">
           <Dropdown>
             <Dropdown.Toggle variant="success" id="dropdown-basic">
@@ -588,7 +573,6 @@ const MyComponent = () => {
           />
           <small>Balance: {token0Balance}</small>
         </Form.Group>
-
         <Form.Group className="mb-3" controlId="formBasicPassword">
           <Dropdown>
             <Dropdown.Toggle variant="success" id="dropdown-basic">
@@ -636,9 +620,6 @@ const MyComponent = () => {
           {swapBreakdown && swapBreakdown.map((info) => <p>{info}</p>)}
         </Alert>
         <Alert variant="info">Swap status: {swapStatus}</Alert>
-        <Button onClick={checkApprovalStatus}>
-          Refresh to check approval status
-        </Button>
         <Button
           variant="warning"
           onClick={() => {
@@ -648,7 +629,6 @@ const MyComponent = () => {
           Approve
         </Button>
         <Button
-          disabled={needApprove}
           variant="success"
           onClick={() => {
             swap(
