@@ -56,7 +56,9 @@ async function addLiquidity(
   setLiquidityStatus,
   setLiquidityBreakdown,
   setToken0ApproxAmount,
-  setToken1ApproxAmount
+  setToken1ApproxAmount,
+  setMintingToken0,
+  setMintingToken1
 ) {
   let status = await (async () => {
     // check uniswap
@@ -415,6 +417,9 @@ async function addLiquidity(
 
       console.log(args);
 
+      setMintingToken0(token0);
+      setMintingToken1(token1);
+
       let result = await estimate(...args, value ? { value } : {}).then(
         (estimatedGasLimit) =>
           method(...args, {
@@ -442,6 +447,36 @@ async function clearAllowance(tokenAddress, library, account) {
   await tokenContract.approve(ROUTER_ADDRESS, "0");
 }
 
+async function updatePool(token0, token1, library, setLiquidityBreakdown) {
+  if (!token0 || !token1) return;
+
+  const pair = await Fetcher.fetchPairData(token0, token1, library)
+    .then((pair) => {
+      console.log("token reserves");
+      console.log(pair);
+      return pair;
+    })
+    .catch((e) => {
+      console.log(e);
+      return new ACYSwapErrorStatus(
+        `${token0.symbol} - ${token1.symbol} pool does not exist. Creating one`
+      );
+    });
+
+  console.log(pair);
+
+  if (pair instanceof ACYSwapErrorStatus) {
+    return;
+  }
+
+  setLiquidityBreakdown([
+    `Pool reserve: ${pair.reserve0.toExact()} ${
+      pair.token0.symbol
+    } + ${pair.reserve1.toExact()} ${pair.token1.symbol}`,
+    // noLiquidity ? "100" : `${poolTokenPercentage?.toSignificant(4)}} %`,
+  ]);
+}
+
 const LiquidityComponent = () => {
   let [token0, setToken0] = useState(null);
   let [token1, setToken1] = useState(null);
@@ -455,6 +490,8 @@ const LiquidityComponent = () => {
   let [needApproveToken1, setNeedApproveToken1] = useState(false);
   let [approveAmountToken0, setApproveAmountToken0] = useState("0");
   let [approveAmountToken1, setApproveAmountToken1] = useState("0");
+  let [mintingToken0, setMintingToken0] = useState(null);
+  let [mintingToken1, setMintingToken1] = useState(null);
 
   let [token0ApproxAmount, setToken0ApproxAmount] = useState("0");
   let [token1ApproxAmount, setToken1ApproxAmount] = useState("0");
@@ -701,11 +738,26 @@ const LiquidityComponent = () => {
               setLiquidityStatus,
               setLiquidityBreakdown,
               setToken0ApproxAmount,
-              setToken1ApproxAmount
+              setToken1ApproxAmount,
+              setMintingToken0,
+              setMintingToken1
             );
           }}
         >
           Add Liquidity
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() => {
+            updatePool(
+              mintingToken0,
+              mintingToken1,
+              library,
+              setLiquidityBreakdown
+            );
+          }}
+        >
+          Update pool info
         </Button>
       </Form>
     </div>
