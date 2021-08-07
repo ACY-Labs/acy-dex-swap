@@ -1,18 +1,15 @@
 import { useWeb3React } from "@web3-react/core";
 import { InjectedConnector } from "@web3-react/injected-connector";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   getRouterContract,
   calculateGasMargin,
-  getContract,
   getTokenTotalSupply,
-  isZero,
   ROUTER_ADDRESS,
   getAllowance,
   ACYSwapErrorStatus,
   approve,
   checkTokenIsApproved,
-  computeTradePriceBreakdown,
   getUserTokenAmount,
   getUserTokenBalance,
   addLiquidityGetEstimated,
@@ -20,25 +17,16 @@ import {
   INITIAL_ALLOWED_SLIPPAGE,
 } from "../utils";
 import { Form, Button, Alert, Dropdown } from "react-bootstrap";
-import ERC20ABI from "../abis/ERC20.json";
-import WETHABI from "../abis/WETH.json";
 import {
   Token,
   TokenAmount,
-  Pair,
-  TradeType,
-  Route,
-  Trade,
   Fetcher,
   Percent,
-  Router,
   WETH,
   ETHER,
   CurrencyAmount,
-  InsufficientReservesError,
   FACTORY_ADDRESS,
 } from "@uniswap/sdk";
-import { MaxUint256 } from "@ethersproject/constants";
 import { BigNumber } from "@ethersproject/bignumber";
 import { parseUnits } from "@ethersproject/units";
 
@@ -57,9 +45,7 @@ async function addLiquidity(
   setLiquidityStatus,
   setLiquidityBreakdown,
   setToken0Amount,
-  setToken1Amount,
-  setMintingToken0,
-  setMintingToken1
+  setToken1Amount
 ) {
   let status = await (async () => {
     // check uniswap
@@ -80,8 +66,6 @@ async function addLiquidity(
       amount: token1Amount,
     } = inputToken1;
 
-    console.log(`tokenAmount0: ${token0Amount} tokenAmount1: ${token1Amount}`);
-
     let token0IsETH = token0Symbol === "ETH";
     let token1IsETH = token1Symbol === "ETH";
 
@@ -98,10 +82,12 @@ async function addLiquidity(
     )
       return new ACYSwapErrorStatus("Format Error");
 
+    console.log("------------------ RECEIVED TOKEN ------------------");
     console.log("token0");
     console.log(inputToken0);
     console.log("token1");
     console.log(inputToken1);
+
     if (token0IsETH && token1IsETH)
       return new ACYSwapErrorStatus("Doesn't support ETH to ETH");
 
@@ -118,8 +104,8 @@ async function addLiquidity(
     // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
     else {
       console.log("ADD LIQUIDITY");
-
       console.log("------------------ CONSTRUCT TOKEN ------------------");
+
       // use WETH for ETHER to work with Uniswap V2 SDK
       const token0 = token0IsETH
         ? WETH[chainId]
@@ -296,20 +282,6 @@ async function addLiquidity(
 
       console.log("------------------ ALLOWANCE ------------------");
       if (!token0IsETH) {
-        // debug
-        let token0Allowance = await getAllowance(
-          token0Address,
-          account,
-          ROUTER_ADDRESS,
-          library,
-          account
-        );
-
-        console.log(`Current allowance for ${token0Symbol}:`);
-        console.log(token0Allowance);
-
-        // end of debug
-
         let token0approval = await checkTokenIsApproved(
           token0Address,
           parsedToken0Amount.raw.toString(),
@@ -369,6 +341,7 @@ async function addLiquidity(
       console.log(parsedToken0Amount.raw);
       console.log("parsed token 1 amount");
       console.log(parsedToken1Amount.raw);
+      console.log("slippage");
       console.log(allowedSlippage);
 
       let estimate;
@@ -435,9 +408,6 @@ async function addLiquidity(
 
       console.log(args);
 
-      setMintingToken0(token0);
-      setMintingToken1(token1);
-
       let result = await estimate(...args, value ? { value } : {}).then(
         (estimatedGasLimit) =>
           method(...args, {
@@ -459,110 +429,69 @@ async function addLiquidity(
   }
 }
 
-async function clearAllowance(tokenAddress, library, account) {
-  let tokenContract = getContract(tokenAddress, ERC20ABI, library, account);
+// expects at least has WETH as one of the tokens
+async function getAllLiquidityPositions(tokens, chainId, library, account) {
+  // we only want WETH
+  tokens = tokens.filter((token) => token.symbol !== "ETH");
 
-  await tokenContract.approve(ROUTER_ADDRESS, "0");
-}
+  let totalTokenCount = tokens.length;
+  let userNonZeroLiquidityPositions = [];
 
-async function updatePool(token0, token1, library, setLiquidityBreakdown) {
-  if (!token0 || !token1) return;
+  if (totalTokenCount === 1) return;
 
-  const pair = await Fetcher.fetchPairData(token0, token1, library)
-    .then((pair) => {
-      console.log("token reserves");
-      console.log(pair.reserve0.toExact());
-      console.log(pair.reserve1.toExact());
-      return pair;
-    })
-    .catch((e) => {
-      console.log(e);
-      return new ACYSwapErrorStatus(
-        `${token0.symbol} - ${token1.symbol} pool does not exist. Creating one`
+  let checkLiquidityPositionTasks = [];
+
+  for (let i = 0; i < totalTokenCount; i++) {
+    for (let j = i + 1; j < totalTokenCount; j++) {
+      const {
+        address: token0Address,
+        symbol: token0Symbol,
+        decimal: token0Decimal,
+      } = tokens[i];
+      const {
+        address: token1Address,
+        symbol: token1Symbol,
+        decimal: token1Decimal,
+      } = tokens[j];
+
+      const token0 = new Token(
+        chainId,
+        token0Address,
+        token0Decimal,
+        token0Symbol
       );
-    });
+      const token1 = new Token(
+        chainId,
+        token1Address,
+        token1Decimal,
+        token1Symbol
+      );
 
-  console.log(pair);
+      // quit if the two tokens are equivalent, i.e. have the same chainId and address
+      if (token0.equals(token1)) continue;
 
-  if (pair instanceof ACYSwapErrorStatus) {
-    return;
+      // queue get pair task
+      const pairTask = Fetcher.fetchPairData(token0, token1, library);
+      checkLiquidityPositionTasks.push(pairTask);
+    }
   }
 
-  setLiquidityBreakdown([
-    `Pool reserve: ${pair.reserve0.toExact()} ${
-      pair.token0.symbol
-    } + ${pair.reserve1.toExact()} ${pair.token1.symbol}`,
-    // noLiquidity ? "100" : `${poolTokenPercentage?.toSignificant(4)}} %`,
-  ]);
-}
+  let pairs = await Promise.allSettled(checkLiquidityPositionTasks);
 
-async function checkPositions(
-  inputToken0,
-  inputToken1,
-  chainId,
-  library,
-  account
-) {
-  if (!inputToken0 || !inputToken1) return;
+  // now we process the pairs
+  for (let pair of pairs) {
+    if (pair.status === "rejected") continue;
 
-  const {
-    address: token0Address,
-    symbol: token0Symbol,
-    decimal: token0Decimal,
-  } = inputToken0;
-  const {
-    address: token1Address,
-    symbol: token1Symbol,
-    decimal: token1Decimal,
-  } = inputToken1;
-
-  let token0IsETH = token0Symbol === "ETH";
-  let token1IsETH = token1Symbol === "ETH";
-
-  if (token0IsETH && token1IsETH) return;
-
-  if (
-    (token0IsETH && token1Symbol === "WETH") ||
-    (token0Symbol === "WETH" && token1IsETH)
-  ) {
-    return;
-  }
-  // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
-  else {
-    console.log("------------------ CONSTRUCT TOKEN ------------------");
-    // use WETH for ETHER to work with Uniswap V2 SDK
-    const token0 = token0IsETH
-      ? WETH[chainId]
-      : new Token(chainId, token0Address, token0Decimal, token0Symbol);
-    const token1 = token1IsETH
-      ? WETH[chainId]
-      : new Token(chainId, token1Address, token1Decimal, token1Symbol);
-
-    // quit if the two tokens are equivalent, i.e. have the same chainId and address
-    if (token0.equals(token1)) return;
-
-    // get pair using our own provider
-    console.log("------------------ CONSTRUCT PAIR ------------------");
-    // if an error occurs, because pair doesn't exists
-    const pair = await Fetcher.fetchPairData(token0, token1, library).catch(
-      (e) => {
-        console.log(e);
-        return new ACYSwapErrorStatus(
-          `${token0.symbol} - ${token1.symbol} pool does not exist. Creating one`
-        );
-      }
-    );
-
-    if (!pair.liquidityToken) return;
-
-    console.log("pair in uer liquidity position");
-    console.log(pair);
+    pair = pair.value;
 
     let userPoolBalance = await getUserTokenAmount(
       pair.liquidityToken,
       account,
       library
     );
+
+    if (userPoolBalance.isZero()) continue;
+
     userPoolBalance = new TokenAmount(pair.liquidityToken, userPoolBalance);
 
     let totalPoolTokens = await getTokenTotalSupply(
@@ -570,11 +499,6 @@ async function checkPositions(
       library,
       account
     );
-
-    console.log("usePoolBalance");
-    console.log(userPoolBalance);
-    console.log("totalPoolTokens");
-    console.log(totalPoolTokens);
 
     let token0Deposited = pair.getLiquidityValue(
       pair.token0,
@@ -589,15 +513,33 @@ async function checkPositions(
       false
     );
 
-    console.log("userPoolBalance");
-    console.log(userPoolBalance);
-    console.log(
-      `${pair.token0.symbol} deposited: ${token0Deposited.toSignificant(6)}`
+    let totalSupply = await getTokenTotalSupply(
+      pair.liquidityToken,
+      library,
+      account
     );
-    console.log(
-      `${pair.token1.symbol} deposited: ${token1Deposited.toSignificant(6)}`
+
+    let liquidityMinted = pair.getLiquidityMinted(
+      totalSupply,
+      token0Deposited,
+      token1Deposited
     );
+
+    let poolTokenPercentage = new Percent(
+      liquidityMinted.raw,
+      totalSupply.raw
+    ).toFixed(4);
+
+    userNonZeroLiquidityPositions.push({
+      pool: `${pair.token0.symbol}/${pair.token1.symbol}`,
+      token0Amount: `${token0Deposited.toSignificant(6)} ${pair.token0.symbol}`,
+      token1Amount: `${token1Deposited.toSignificant(6)} ${pair.token1.symbol}`,
+      token0Reserve: `${pair.reserve0.toExact()} ${pair.token0.symbol}`,
+      token1Reserve: `${pair.reserve1.toExact()} ${pair.token1.symbol}`,
+      share: `${poolTokenPercentage}%`,
+    });
   }
+  return userNonZeroLiquidityPositions;
 }
 
 const LiquidityComponent = () => {
@@ -613,11 +555,7 @@ const LiquidityComponent = () => {
   let [needApproveToken1, setNeedApproveToken1] = useState(false);
   let [approveAmountToken0, setApproveAmountToken0] = useState("0");
   let [approveAmountToken1, setApproveAmountToken1] = useState("0");
-  let [mintingToken0, setMintingToken0] = useState(null);
-  let [mintingToken1, setMintingToken1] = useState(null);
-
-  let [token0ApproxAmount, setToken0ApproxAmount] = useState("0");
-  let [token1ApproxAmount, setToken1ApproxAmount] = useState("0");
+  let [userLiquidityPositions, setUserLiquidityPositions] = useState([]);
   let [exactIn, setExactIn] = useState(true);
 
   const individualFieldPlaceholder = "Enter amount";
@@ -628,7 +566,7 @@ const LiquidityComponent = () => {
     supportedChainIds: [1, 3, 4, 5, 42, 80001],
   });
 
-  let supportedTokens = [
+  let supportedTokens = useMemo(() => [
     {
       symbol: "USDC",
       address: "0xeb8f08a975Ab53E34D8a0330E0D34de942C95926",
@@ -664,7 +602,7 @@ const LiquidityComponent = () => {
       address: "0x577d296678535e4903d59a4c929b718e1d575e0a",
       decimal: 8,
     },
-  ];
+  ]);
 
   useEffect(() => {
     activate(injected);
@@ -719,8 +657,18 @@ const LiquidityComponent = () => {
   }, [token1Amount, t1Changed]);
 
   useEffect(() => {
-    checkPositions(token0, token1, chainId, library, account);
-  }, [token0, token1, chainId, library, account]);
+    async function getAllUserLiquidityPositions() {
+      setUserLiquidityPositions(
+        await getAllLiquidityPositions(
+          supportedTokens,
+          chainId,
+          library,
+          account
+        )
+      );
+    }
+    getAllUserLiquidityPositions();
+  }, [supportedTokens, chainId, library, account]);
 
   return (
     <div>
@@ -865,27 +813,21 @@ const LiquidityComponent = () => {
               setLiquidityStatus,
               setLiquidityBreakdown,
               setToken0Amount,
-              setToken1Amount,
-              setMintingToken0,
-              setMintingToken1
+              setToken1Amount
             );
           }}
         >
           Add Liquidity
         </Button>
-        <Button
-          variant="danger"
-          onClick={() => {
-            updatePool(
-              mintingToken0,
-              mintingToken1,
-              library,
-              setLiquidityBreakdown
-            );
-          }}
-        >
-          Update pool info
-        </Button>
+
+        <h2>Your positions</h2>
+        {userLiquidityPositions.map((position) => (
+          <Alert variant="dark">
+            {Object.values(position).map((field) => (
+              <p>{field}</p>
+            ))}
+          </Alert>
+        ))}
       </Form>
     </div>
   );

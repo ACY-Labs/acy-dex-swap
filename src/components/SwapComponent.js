@@ -50,8 +50,8 @@ async function swap(
   setApproveAmount,
   setSwapStatus,
   setSwapBreakdown,
-  setToken0ApproxAmount,
-  setToken1ApproxAmount
+  setToken0Amount,
+  setToken1Amount
 ) {
   let status = await (async () => {
     // check uniswap
@@ -120,8 +120,8 @@ async function swap(
       console.log("WRAP");
 
       // UI should sync value of ETH and WETH
-      if (exactIn) setToken1ApproxAmount(token0Amount);
-      else setToken0ApproxAmount(token1Amount);
+      if (exactIn) setToken1Amount(token0Amount);
+      else setToken0Amount(token1Amount);
 
       wethContract = getContract(token1Address, WETHABI, library, account);
       let wrappedAmount = BigNumber.from(
@@ -143,8 +143,8 @@ async function swap(
       console.log("UNWRAP");
 
       // UI should sync value of ETH and WETH
-      if (exactIn) setToken1ApproxAmount(token0Amount);
-      else setToken0ApproxAmount(token1Amount);
+      if (exactIn) setToken1Amount(token0Amount);
+      else setToken0Amount(token1Amount);
 
       wethContract = getContract(token0Address, WETHABI, library, account);
 
@@ -272,7 +272,7 @@ async function swap(
         slippageAdjustedAmount = minAmountOut.raw.toString();
 
         // update UI with estimated output token amount
-        setToken1ApproxAmount(trade.outputAmount.toExact());
+        setToken1Amount(trade.outputAmount.toExact());
 
         console.log(`Minimum received: ${slippageAdjustedAmount}`);
       } else {
@@ -282,7 +282,7 @@ async function swap(
         maxAmountIn = trade.maximumAmountIn(allowedSlippage);
         slippageAdjustedAmount = maxAmountIn.raw.toString();
 
-        setToken0ApproxAmount(trade.inputAmount.toExact());
+        setToken0Amount(trade.inputAmount.toExact());
 
         // updated input token field, check if still below account balance
 
@@ -392,7 +392,7 @@ async function swap(
   }
 }
 
-const MyComponent = () => {
+const SwapComponent = () => {
   let [token0, setToken0] = useState(null);
   let [token1, setToken1] = useState(null);
   let [token0Balance, setToken0Balance] = useState("0");
@@ -403,8 +403,6 @@ const MyComponent = () => {
   let [swapStatus, setSwapStatus] = useState();
   let [needApprove, setNeedApprove] = useState(false);
   let [approveAmount, setApproveAmount] = useState("0");
-  let [token0ApproxAmount, setToken0ApproxAmount] = useState("0");
-  let [token1ApproxAmount, setToken1ApproxAmount] = useState("0");
   let [exactIn, setExactIn] = useState(true);
 
   const individualFieldPlaceholder = "Enter amount";
@@ -459,7 +457,8 @@ const MyComponent = () => {
 
   let t0Changed = useCallback(async () => {
     if (!token0 || !token1) return;
-    setToken1ApproxAmount(
+    if (!exactIn) return;
+    setToken1Amount(
       await swapGetEstimated(
         {
           ...token0,
@@ -475,11 +474,12 @@ const MyComponent = () => {
         library
       )
     );
-  }, [token0, token1, token0Amount, token1Amount, chainId, library]);
+  }, [token0, token1, token0Amount, token1Amount, exactIn, chainId, library]);
 
   let t1Changed = useCallback(async () => {
     if (!token0 || !token1) return;
-    setToken0ApproxAmount(
+    if (exactIn) return;
+    setToken0Amount(
       await swapGetEstimated(
         {
           ...token0,
@@ -495,7 +495,7 @@ const MyComponent = () => {
         library
       )
     );
-  }, [token0, token1, token0Amount, token1Amount, chainId, library]);
+  }, [token0, token1, token0Amount, token1Amount, exactIn, chainId, library]);
 
   useEffect(() => {
     t0Changed();
@@ -543,12 +543,11 @@ const MyComponent = () => {
             </Dropdown.Menu>
           </Dropdown>
           <Form.Control
-            value={token0ApproxAmount}
+            value={token0Amount}
             placeholder={
               exactIn ? individualFieldPlaceholder : dependentFieldPlaceholder
             }
             onChange={(e) => {
-              setToken0ApproxAmount(e.target.value);
               setToken0Amount(e.target.value);
               setExactIn(true);
             }}
@@ -583,12 +582,11 @@ const MyComponent = () => {
             </Dropdown.Menu>
           </Dropdown>
           <Form.Control
-            value={token1ApproxAmount}
+            value={token1Amount}
             placeholder={
               exactIn ? dependentFieldPlaceholder : individualFieldPlaceholder
             }
             onChange={(e) => {
-              setToken1ApproxAmount(e.target.value);
               setToken1Amount(e.target.value);
               setExactIn(false);
             }}
@@ -632,8 +630,8 @@ const MyComponent = () => {
               setApproveAmount,
               setSwapStatus,
               setSwapBreakdown,
-              setToken0ApproxAmount,
-              setToken1ApproxAmount
+              setToken0Amount,
+              setToken1Amount
             );
           }}
         >
@@ -644,4 +642,4 @@ const MyComponent = () => {
   );
 };
 
-export default MyComponent;
+export default SwapComponent;

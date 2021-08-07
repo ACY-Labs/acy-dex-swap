@@ -1,6 +1,6 @@
 import { Web3ReactProvider } from "@web3-react/core";
 import { Web3Provider } from "@ethersproject/providers";
-import MyComponent from "./components/MyComponent";
+import SwapComponent from "./components/SwapComponent";
 import LiquidityComponent from "./components/LiquidityComponent";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./App.css";
@@ -18,7 +18,7 @@ function App() {
         className="py-5"
         style={{ "padding-left": "15%", "padding-right": "15%" }}
       >
-        <MyComponent />
+        <SwapComponent />
         <hr />
         <LiquidityComponent />
       </div>
