@@ -24,12 +24,12 @@ utils/ 存有 MyComponent 需要的辅助函数与常数
 8/8/2021 更新：
 
 1. getEstimated 重命名 -> swapGetEstimated
-2. 修改了swap部分的参数的setToken0Amount语义
+2. 修改了swap的形参命名 (之前为setToken0ApproxAmount -> setToken0Amount，setToken1ApproxAmount -> setToken1Amount)，不影响功能
 3. 添加了addLiquidity，addLiquidityGetEstimated与getAllLiquidityPositions函数
 
 `chainId`, `library` 与 `account` 都能使用 useWeb3React hook 获取
 
-
+<br/>
 
 ### approve
 
@@ -44,7 +44,7 @@ async function approve(
 )
 ```
 
-
+<br/>
 
 ### checkTokenIsApproved
 
@@ -65,7 +65,7 @@ async function checkTokenIsApproved(
 
 `requiredAmount`：字符串，考虑了 token 精度的数额，例如 ETH 有 18 个精度位(decimal)，那么授权 1 ETH requiredAmount 值为 1000000000000000000
 
-
+<br/>
 
 ### swapGetEstimated
 
@@ -99,7 +99,7 @@ async function swapGetEstimated(
 
 `exactIn`是一个布尔值，true 表示用户要求准确输入，大概输出，false 则是精确输出，大概输入
 
-
+<br/>
 
 ### getUserTokenBalance
 
@@ -126,7 +126,7 @@ async function getUserTokenBalance(
 
 }
 
-
+<br/>
 
 ### swap
 
@@ -209,7 +209,7 @@ async function getAllLiquidityPositions(
 ...]
 ```
 
-
+<br/>
 
 ### addLiquidityGetEstimated
 
@@ -239,7 +239,7 @@ async function addLiquidityGetEstimated(
 
  }
 
-
+<br/>
 
 ### addLiquidity
 
@@ -287,7 +287,7 @@ async function addLiquidity(
 
 注：由于增加流动性需要用户付出两种代币，所以这里的参数多了俩个，分别是另外一个代币的授权和授权金额的变量setter。
 
-
+<br/>
 
 ## Hint
 
