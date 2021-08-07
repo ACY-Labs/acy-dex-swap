@@ -415,59 +415,41 @@ const MyComponent = () => {
     supportedChainIds: [1, 3, 4, 5, 42, 80001],
   });
 
-  // let supportedTokens = [
-  //   {
-  //     symbol: "USDC",
-  //     address: "0x4DBCdF9B62e891a7cec5A2568C3F4FAF9E8Abe2b",
-  //     decimal: 6,
-  //   },
-  //   {
-  //     symbol: "ETH",
-  //     address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
-  //     decimal: 18,
-  //   },
-  //   {
-  //     symbol: "WETH",
-  //     address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
-  //     decimal: 18,
-  //   },
-  //   {
-  //     symbol: "UNI",
-  //     address: "0x03e6c12ef405ac3f642b9184eded8e1322de1a9e",
-  //     decimal: 18,
-  //   },
-  //   {
-  //     symbol: "DAI",
-  //     address: "0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea",
-  //     decimal: 18,
-  //   },
-  //   {
-  //     symbol: "cDAI",
-  //     address: "0x6d7f0754ffeb405d23c51ce938289d4835be3b14",
-  //     decimal: 8,
-  //   },
-  //   {
-  //     symbol: "WBTC",
-  //     address: "0x577d296678535e4903d59a4c929b718e1d575e0a",
-  //     decimal: 8,
-  //   },
-  // ];
-
   let supportedTokens = [
     {
-      symbol: "AAA",
-      address: "0xFAd5a0a35Efd7DFf7A6d87f517D202241F3Fe11e",
+      symbol: "USDC",
+      address: "0x4DBCdF9B62e891a7cec5A2568C3F4FAF9E8Abe2b",
+      decimal: 6,
+    },
+    {
+      symbol: "ETH",
+      address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
       decimal: 18,
     },
     {
-      symbol: "BBB",
-      address: "0x59e936E7e1130CFfD1E4595F588659A8cFadB9E0",
+      symbol: "WETH",
+      address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
       decimal: 18,
     },
     {
-      symbol: "CCC",
-      address: "0x354F2Ed9691E445A04a1A1B45166Fd87522ad241",
+      symbol: "UNI",
+      address: "0x03e6c12ef405ac3f642b9184eded8e1322de1a9e",
       decimal: 18,
+    },
+    {
+      symbol: "DAI",
+      address: "0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea",
+      decimal: 18,
+    },
+    {
+      symbol: "cDAI",
+      address: "0x6d7f0754ffeb405d23c51ce938289d4835be3b14",
+      decimal: 8,
+    },
+    {
+      symbol: "WBTC",
+      address: "0x577d296678535e4903d59a4c929b718e1d575e0a",
+      decimal: 8,
     },
   ];
 

@@ -23,8 +23,8 @@ import {
 import { MaxUint256 } from "@ethersproject/constants";
 export const INITIAL_ALLOWED_SLIPPAGE = 50; //bips
 
-// export const ROUTER_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
-export const ROUTER_ADDRESS = "0xC9855C11b7aDc08869069fA6465da1A42B813D78";
+export const ROUTER_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+// export const ROUTER_ADDRESS = "0xF3726d6acfeda3E73a6F2328b948834f3Af39A2B";
 
 export function isAddress(value) {
   try {
@@ -420,21 +420,23 @@ export async function addLiquidityGetEstimated(
     if (token0.equals(token1)) return;
 
     // get pair using our own provider
-    const pair = await Fetcher.fetchPairData(token0, token1, library).catch(
-      (e) => {
+    const pair = await Fetcher.fetchPairData(token0, token1, library)
+      .then((pair) => {
+        console.log(pair.reserve0.raw.toString());
+        console.log(pair.reserve1.raw.toString());
+        return pair;
+      })
+      .catch((e) => {
         return new ACYSwapErrorStatus(
           `${token0.symbol} - ${token1.symbol} pool does not exist. Create one?`
         );
-      }
-    );
+      });
     if (pair instanceof ACYSwapErrorStatus)
       return exactIn ? token1Amount : token0Amount;
     console.log(pair);
 
     console.log("------------------ PARSE AMOUNT ------------------");
     // convert typed in amount to BigNumber rusing ethers.js's parseUnits then to string,
-    console.log(token0Amount);
-    console.log(token0Decimal);
     let parsedAmount = exactIn
       ? new TokenAmount(
           token0,
@@ -457,16 +459,33 @@ export async function addLiquidityGetEstimated(
       );
     }
 
+    console.log(exactIn ? "Exact input" : "Exact output");
+    console.log("inputAmount");
+    console.log(inputAmount.raw.toString());
     console.log("estimated dependent amount");
 
-    // console.log(pair.priceOf(token0).quote(inputAmount).raw.toString());
-    let dependentTokenAmount = pair
-      .priceOf(token0)
-      .quote(new TokenAmount(token0, inputAmount.raw));
-    let parsed =
-      token1 === ETHER
-        ? CurrencyAmount.ether(dependentTokenAmount.raw)
-        : dependentTokenAmount;
+    let dependentTokenAmount;
+    let parsed;
+
+    if (exactIn) {
+      dependentTokenAmount = pair
+        .priceOf(token0)
+        .quote(new TokenAmount(token0, inputAmount.raw));
+
+      parsed =
+        token1 === ETHER
+          ? CurrencyAmount.ether(dependentTokenAmount.raw)
+          : dependentTokenAmount;
+    } else {
+      dependentTokenAmount = pair
+        .priceOf(token1)
+        .quote(new TokenAmount(token1, inputAmount.raw));
+
+      parsed =
+        token0 === ETHER
+          ? CurrencyAmount.ether(dependentTokenAmount.raw)
+          : dependentTokenAmount;
+    }
 
     console.log(parsed.toExact());
     return parsed.toExact();
@@ -483,4 +502,12 @@ export async function getUserTokenBalance(token, chainId, account, library) {
     account,
     library
   );
+}
+
+export async function getTokenTotalSupply(token, library, account) {
+  let tokenContract = getContract(token.address, ERC20ABI, library, account);
+  let totalSupply = await tokenContract.totalSupply();
+  let parsedResult = new TokenAmount(token, totalSupply.toString());
+
+  return parsedResult;
 }

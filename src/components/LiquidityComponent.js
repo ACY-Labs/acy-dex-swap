@@ -5,6 +5,7 @@ import {
   getRouterContract,
   calculateGasMargin,
   getContract,
+  getTokenTotalSupply,
   isZero,
   ROUTER_ADDRESS,
   getAllowance,
@@ -55,8 +56,8 @@ async function addLiquidity(
   setApproveAmountToken1,
   setLiquidityStatus,
   setLiquidityBreakdown,
-  setToken0ApproxAmount,
-  setToken1ApproxAmount,
+  setToken0Amount,
+  setToken1Amount,
   setMintingToken0,
   setMintingToken1
 ) {
@@ -109,8 +110,8 @@ async function addLiquidity(
       (token0Symbol === "WETH" && token1IsETH)
     ) {
       // UI should sync value of ETH and WETH
-      if (exactIn) setToken1ApproxAmount(token0Amount);
-      else setToken0ApproxAmount(token1Amount);
+      if (exactIn) setToken1Amount(token0Amount);
+      else setToken0Amount(token1Amount);
 
       return new ACYSwapErrorStatus("Invalid pair WETH/ETH");
     }
@@ -167,18 +168,14 @@ async function addLiquidity(
       console.log("------------------ CONSTRUCT PAIR ------------------");
       console.log("FETCH");
       // if an error occurs, because pair doesn't exists
-      const pair = await Fetcher.fetchPairData(token0, token1, library)
-        .then((pair) => {
-          console.log("token reserves");
-          console.log(pair);
-          return pair;
-        })
-        .catch((e) => {
+      const pair = await Fetcher.fetchPairData(token0, token1, library).catch(
+        (e) => {
           console.log(e);
           return new ACYSwapErrorStatus(
             `${token0.symbol} - ${token1.symbol} pool does not exist. Creating one`
           );
-        });
+        }
+      );
 
       console.log(pair);
       let noLiquidity = false;
@@ -188,7 +185,7 @@ async function addLiquidity(
       }
 
       console.log("------------------ PARSE AMOUNT ------------------");
-      // convert typed in amount to BigNumbe rusing ethers.js's parseUnits then to string,
+      // convert typed in amount to BigNumber using ethers.js's parseUnits,
       let parsedAmount = exactIn
         ? new TokenAmount(token0, parseUnits(token0Amount, token0Decimal))
         : new TokenAmount(token1, parseUnits(token1Amount, token1Decimal));
@@ -218,7 +215,7 @@ async function addLiquidity(
               ? CurrencyAmount.ether(dependentTokenAmount.raw)
               : dependentTokenAmount;
 
-          setToken1ApproxAmount(dependentTokenAmount.toExact());
+          setToken1Amount(dependentTokenAmount.toExact());
         } else {
           dependentTokenAmount = pair.priceOf(token1).quote(parsedAmount);
 
@@ -237,7 +234,7 @@ async function addLiquidity(
               ? CurrencyAmount.ether(token1TokenAmount.raw)
               : token1TokenAmount;
 
-          setToken0ApproxAmount(dependentTokenAmount.toExact());
+          setToken0Amount(dependentTokenAmount.toExact());
         }
       } else {
         if (token0Amount === "0" || token1Amount === "0") {
@@ -264,10 +261,31 @@ async function addLiquidity(
       console.log("------------------ BREAKDOWN ------------------");
 
       if (!noLiquidity) {
+        let totalSupply = await getTokenTotalSupply(
+          pair.liquidityToken,
+          library,
+          account
+        );
+        console.log("Liquidity MInted");
+        console.log(pair.liquidityToken);
+        let liquidityMinted = pair.getLiquidityMinted(
+          totalSupply,
+          parsedToken0Amount,
+          parsedToken1Amount
+        );
+
+        let poolTokenPercentage = new Percent(
+          liquidityMinted.raw,
+          totalSupply.add(liquidityMinted).raw
+        ).toFixed(4);
+
         setLiquidityBreakdown([
           `Pool reserve: ${pair.reserve0.toExact()} ${
             pair.token0.symbol
           } + ${pair.reserve1.toExact()} ${pair.token1.symbol}`,
+          `Pool share: ${poolTokenPercentage}%`,
+          `${token0.symbol}: ${parsedToken0Amount.toExact()}`,
+          `${token1.symbol}: ${parsedToken1Amount.toExact()}`,
           // noLiquidity ? "100" : `${poolTokenPercentage?.toSignificant(4)}} %`,
         ]);
       } else {
@@ -453,7 +471,8 @@ async function updatePool(token0, token1, library, setLiquidityBreakdown) {
   const pair = await Fetcher.fetchPairData(token0, token1, library)
     .then((pair) => {
       console.log("token reserves");
-      console.log(pair);
+      console.log(pair.reserve0.toExact());
+      console.log(pair.reserve1.toExact());
       return pair;
     })
     .catch((e) => {
@@ -475,6 +494,110 @@ async function updatePool(token0, token1, library, setLiquidityBreakdown) {
     } + ${pair.reserve1.toExact()} ${pair.token1.symbol}`,
     // noLiquidity ? "100" : `${poolTokenPercentage?.toSignificant(4)}} %`,
   ]);
+}
+
+async function checkPositions(
+  inputToken0,
+  inputToken1,
+  chainId,
+  library,
+  account
+) {
+  if (!inputToken0 || !inputToken1) return;
+
+  const {
+    address: token0Address,
+    symbol: token0Symbol,
+    decimal: token0Decimal,
+  } = inputToken0;
+  const {
+    address: token1Address,
+    symbol: token1Symbol,
+    decimal: token1Decimal,
+  } = inputToken1;
+
+  let token0IsETH = token0Symbol === "ETH";
+  let token1IsETH = token1Symbol === "ETH";
+
+  if (token0IsETH && token1IsETH) return;
+
+  if (
+    (token0IsETH && token1Symbol === "WETH") ||
+    (token0Symbol === "WETH" && token1IsETH)
+  ) {
+    return;
+  }
+  // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
+  else {
+    console.log("------------------ CONSTRUCT TOKEN ------------------");
+    // use WETH for ETHER to work with Uniswap V2 SDK
+    const token0 = token0IsETH
+      ? WETH[chainId]
+      : new Token(chainId, token0Address, token0Decimal, token0Symbol);
+    const token1 = token1IsETH
+      ? WETH[chainId]
+      : new Token(chainId, token1Address, token1Decimal, token1Symbol);
+
+    // quit if the two tokens are equivalent, i.e. have the same chainId and address
+    if (token0.equals(token1)) return;
+
+    // get pair using our own provider
+    console.log("------------------ CONSTRUCT PAIR ------------------");
+    // if an error occurs, because pair doesn't exists
+    const pair = await Fetcher.fetchPairData(token0, token1, library).catch(
+      (e) => {
+        console.log(e);
+        return new ACYSwapErrorStatus(
+          `${token0.symbol} - ${token1.symbol} pool does not exist. Creating one`
+        );
+      }
+    );
+
+    if (!pair.liquidityToken) return;
+
+    console.log("pair in uer liquidity position");
+    console.log(pair);
+
+    let userPoolBalance = await getUserTokenAmount(
+      pair.liquidityToken,
+      account,
+      library
+    );
+    userPoolBalance = new TokenAmount(pair.liquidityToken, userPoolBalance);
+
+    let totalPoolTokens = await getTokenTotalSupply(
+      pair.liquidityToken,
+      library,
+      account
+    );
+
+    console.log("usePoolBalance");
+    console.log(userPoolBalance);
+    console.log("totalPoolTokens");
+    console.log(totalPoolTokens);
+
+    let token0Deposited = pair.getLiquidityValue(
+      pair.token0,
+      totalPoolTokens,
+      userPoolBalance,
+      false
+    );
+    let token1Deposited = pair.getLiquidityValue(
+      pair.token1,
+      totalPoolTokens,
+      userPoolBalance,
+      false
+    );
+
+    console.log("userPoolBalance");
+    console.log(userPoolBalance);
+    console.log(
+      `${pair.token0.symbol} deposited: ${token0Deposited.toSignificant(6)}`
+    );
+    console.log(
+      `${pair.token1.symbol} deposited: ${token1Deposited.toSignificant(6)}`
+    );
+  }
 }
 
 const LiquidityComponent = () => {
@@ -505,59 +628,41 @@ const LiquidityComponent = () => {
     supportedChainIds: [1, 3, 4, 5, 42, 80001],
   });
 
-  //   let supportedTokens = [
-  //     {
-  //       symbol: "USDC",
-  //       address: "0xeb8f08a975Ab53E34D8a0330E0D34de942C95926",
-  //       decimal: 6,
-  //     },
-  //     {
-  //       symbol: "ETH",
-  //       address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
-  //       decimal: 18,
-  //     },
-  //     {
-  //       symbol: "WETH",
-  //       address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
-  //       decimal: 18,
-  //     },
-  //     {
-  //       symbol: "UNI",
-  //       address: "0x03e6c12ef405ac3f642b9184eded8e1322de1a9e",
-  //       decimal: 18,
-  //     },
-  //     {
-  //       symbol: "DAI",
-  //       address: "0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea",
-  //       decimal: 18,
-  //     },
-  //     {
-  //       symbol: "cDAI",
-  //       address: "0x6d7f0754ffeb405d23c51ce938289d4835be3b14",
-  //       decimal: 8,
-  //     },
-  //     {
-  //       symbol: "WBTC",
-  //       address: "0x577d296678535e4903d59a4c929b718e1d575e0a",
-  //       decimal: 8,
-  //     },
-  //   ];
-
   let supportedTokens = [
     {
-      symbol: "AAA",
-      address: "0xFAd5a0a35Efd7DFf7A6d87f517D202241F3Fe11e",
+      symbol: "USDC",
+      address: "0xeb8f08a975Ab53E34D8a0330E0D34de942C95926",
+      decimal: 6,
+    },
+    {
+      symbol: "ETH",
+      address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
       decimal: 18,
     },
     {
-      symbol: "BBB",
-      address: "0x59e936E7e1130CFfD1E4595F588659A8cFadB9E0",
+      symbol: "WETH",
+      address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
       decimal: 18,
     },
     {
-      symbol: "CCC",
-      address: "0x354F2Ed9691E445A04a1A1B45166Fd87522ad241",
+      symbol: "UNI",
+      address: "0x03e6c12ef405ac3f642b9184eded8e1322de1a9e",
       decimal: 18,
+    },
+    {
+      symbol: "DAI",
+      address: "0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea",
+      decimal: 18,
+    },
+    {
+      symbol: "cDAI",
+      address: "0x6d7f0754ffeb405d23c51ce938289d4835be3b14",
+      decimal: 8,
+    },
+    {
+      symbol: "WBTC",
+      address: "0x577d296678535e4903d59a4c929b718e1d575e0a",
+      decimal: 8,
     },
   ];
 
@@ -565,9 +670,7 @@ const LiquidityComponent = () => {
     activate(injected);
   }, []);
 
-  let t0Changed = useCallback(async () => {
-    if (!token0 || !token1) return;
-    if (!exactIn) return;
+  let getDependentField = useCallback(async () => {
     let estimated = await addLiquidityGetEstimated(
       {
         ...token0,
@@ -577,21 +680,47 @@ const LiquidityComponent = () => {
         ...token1,
         amount: token1Amount,
       },
-
-      true,
+      exactIn,
       chainId,
       library
     );
 
     if (!estimated) estimated = 0;
 
+    return estimated;
+  }, [token0, token1, token0Amount, token1Amount, chainId, library, exactIn]);
+
+  let t0Changed = useCallback(async () => {
+    if (!token0 || !token1) return;
+
+    if (!exactIn) return;
+
+    let estimated = await getDependentField();
+
     setToken1Amount(estimated);
-    setToken1ApproxAmount(estimated);
-  }, [token0, token1, token0Amount, token1Amount, chainId, library]);
+  }, [token0, token1, getDependentField, exactIn]);
+
+  let t1Changed = useCallback(async () => {
+    if (!token0 || !token1) return;
+
+    if (exactIn) return;
+
+    let estimated = await getDependentField();
+
+    setToken0Amount(estimated);
+  }, [token0, token1, getDependentField, exactIn]);
 
   useEffect(() => {
     t0Changed();
   }, [token0Amount, t0Changed]);
+
+  useEffect(() => {
+    t1Changed();
+  }, [token1Amount, t1Changed]);
+
+  useEffect(() => {
+    checkPositions(token0, token1, chainId, library, account);
+  }, [token0, token1, chainId, library, account]);
 
   return (
     <div>
@@ -625,14 +754,13 @@ const LiquidityComponent = () => {
             </Dropdown.Menu>
           </Dropdown>
           <Form.Control
-            value={token0ApproxAmount}
+            value={token0Amount}
             placeholder={
               exactIn ? individualFieldPlaceholder : dependentFieldPlaceholder
             }
             onChange={(e) => {
-              setToken0ApproxAmount(e.target.value);
-              setToken0Amount(e.target.value);
               setExactIn(true);
+              setToken0Amount(e.target.value);
             }}
           />
           <small>Balance: {token0Balance}</small>
@@ -666,14 +794,13 @@ const LiquidityComponent = () => {
             </Dropdown.Menu>
           </Dropdown>
           <Form.Control
-            value={token1ApproxAmount}
+            value={token1Amount}
             placeholder={
               exactIn ? dependentFieldPlaceholder : individualFieldPlaceholder
             }
             onChange={(e) => {
-              setToken1ApproxAmount(e.target.value);
-              setToken1Amount(e.target.value);
               setExactIn(false);
+              setToken1Amount(e.target.value);
             }}
           />
           <small>Balance: {token1Balance}</small>
@@ -737,8 +864,8 @@ const LiquidityComponent = () => {
               setApproveAmountToken1,
               setLiquidityStatus,
               setLiquidityBreakdown,
-              setToken0ApproxAmount,
-              setToken1ApproxAmount,
+              setToken0Amount,
+              setToken1Amount,
               setMintingToken0,
               setMintingToken1
             );
