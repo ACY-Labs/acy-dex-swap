@@ -10,7 +10,7 @@ import {
   getAllowance,
   ACYSwapErrorStatus,
   computeTradePriceBreakdown,
-  getUserTokenAmount,
+  getUserTokenBalanceRaw,
   swapGetEstimated,
   approve,
   checkTokenIsApproved,
@@ -94,7 +94,7 @@ async function swap(
     // check user account balance
     console.log("------------------ CHECK BALANCE ------------------");
     // Big Number comparison
-    let userToken0Balance = await getUserTokenAmount(
+    let userToken0Balance = await getUserTokenBalanceRaw(
       token0IsETH
         ? ETHER
         : new Token(chainId, token0Address, token0Decimal, token0Symbol),

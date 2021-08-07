@@ -18,9 +18,9 @@ import {
   ETHER,
   CurrencyAmount,
   InsufficientReservesError,
-  FACTORY_ADDRESS,
 } from "@uniswap/sdk";
 import { MaxUint256 } from "@ethersproject/constants";
+
 export const INITIAL_ALLOWED_SLIPPAGE = 50; //bips
 
 export const ROUTER_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
@@ -52,21 +52,24 @@ export function getContract(address, ABI, library, account) {
 
   return new Contract(address, ABI, getProviderOrSigner(library, account));
 }
+
 export function getRouterContract(library, account) {
   return getContract(ROUTER_ADDRESS, IUniswapV2Router02ABI, library, account);
 }
 
-// add 10%
+// return gas with 10% added margin in BigNumber
 export function calculateGasMargin(value) {
   return value
     .mul(BigNumber.from(10000).add(BigNumber.from(1000)))
     .div(BigNumber.from(10000));
 }
 
+// check if hex string is zero
 export function isZero(hexNumberString) {
   return /^0x0*$/.test(hexNumberString);
 }
 
+// return token allowance in BigNumber
 export async function getAllowance(
   tokenAddress,
   owner,
@@ -80,6 +83,7 @@ export async function getAllowance(
   return allowance;
 }
 
+// a custom error class for custom error text and handling
 export class ACYSwapErrorStatus {
   getErrorText() {
     return this.errorText;
@@ -89,11 +93,15 @@ export class ACYSwapErrorStatus {
   }
 }
 
-const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
-const ONE_HUNDRED_PERCENT = new Percent(JSBI.BigInt(10000), JSBI.BigInt(10000));
-const INPUT_FRACTION_AFTER_FEE = ONE_HUNDRED_PERCENT.subtract(BASE_FEE);
-
+// taken from Uniswap, used for price impact and realized liquid provider fee
 export function computeTradePriceBreakdown(trade) {
+  const BASE_FEE = new Percent(JSBI.BigInt(30), JSBI.BigInt(10000));
+  const ONE_HUNDRED_PERCENT = new Percent(
+    JSBI.BigInt(10000),
+    JSBI.BigInt(10000)
+  );
+  const INPUT_FRACTION_AFTER_FEE = ONE_HUNDRED_PERCENT.subtract(BASE_FEE);
+
   // for each hop in our trade, take away the x*y=k price impact from 0.3% fees
   // e.g. for 3 tokens/2 hops: 1 - ((1 - .03) * (1-.03))
   const realizedLPFee = !trade
@@ -138,7 +146,8 @@ export function computeTradePriceBreakdown(trade) {
   };
 }
 
-export async function getUserTokenAmount(token, account, library) {
+// get user token balance in BigNumber
+export async function getUserTokenBalanceRaw(token, account, library) {
   if (token === ETHER) {
     return await library.getBalance(account);
   } else {
@@ -152,13 +161,23 @@ export async function getUserTokenAmount(token, account, library) {
   }
 }
 
-export async function getUserTokenAmountExact(token, account, library) {
+// get user token balance in readable string foramt
+export async function getUserTokenBalance(token, chainId, account, library) {
+  let { address, symbol, decimal } = token;
+
+  if (!token) return;
+  let tokenIsETH = symbol === "ETH";
   return formatUnits(
-    await getUserTokenAmount(token, account, library),
-    token.decimals
+    await getUserTokenBalanceRaw(
+      tokenIsETH ? ETHER : new Token(chainId, address, decimal, symbol),
+      account,
+      library
+    ),
+    decimal
   );
 }
 
+// return slippage adjusted amount for arguments when adding liquidity. Returns JSBI
 export function calculateSlippageAmount(value, slippage) {
   if (slippage < 0 || slippage > 10000) {
     throw Error(`Unexpected slippage value: ${slippage}`);
@@ -175,6 +194,7 @@ export function calculateSlippageAmount(value, slippage) {
   ];
 }
 
+// approve an ERC-20 token
 export async function approve(tokenAddress, requiredAmount, library, account) {
   if (requiredAmount === "0") {
     console.log("Unncessary call to approve");
@@ -225,6 +245,7 @@ export async function approve(tokenAddress, requiredAmount, library, account) {
   }
 }
 
+// should be used in polling to check status of token approval every n seconds
 export async function checkTokenIsApproved(
   tokenAddress,
   requiredAmount,
@@ -247,6 +268,7 @@ export async function checkTokenIsApproved(
   return allowance.gte(BigNumber.from(requiredAmount));
 }
 
+// get the estimated amount  of the other token required when swapping, in readable string.
 export async function swapGetEstimated(
   inputToken0,
   inputToken1,
@@ -374,6 +396,7 @@ export async function swapGetEstimated(
   }
 }
 
+// get the estimated amount of the other token required when adding liquidity, in readable string.
 export async function addLiquidityGetEstimated(
   inputToken0,
   inputToken1,
@@ -492,18 +515,7 @@ export async function addLiquidityGetEstimated(
   }
 }
 
-export async function getUserTokenBalance(token, chainId, account, library) {
-  let { address, symbol, decimal } = token;
-
-  if (!token) return;
-  let tokenIsETH = symbol === "ETH";
-  return await getUserTokenAmountExact(
-    tokenIsETH ? ETHER : new Token(chainId, address, decimal, symbol),
-    account,
-    library
-  );
-}
-
+// get total supply of a ERC-20 token, can be liquidity token
 export async function getTokenTotalSupply(token, library, account) {
   let tokenContract = getContract(token.address, ERC20ABI, library, account);
   let totalSupply = await tokenContract.totalSupply();

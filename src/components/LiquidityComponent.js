@@ -5,12 +5,10 @@ import {
   getRouterContract,
   calculateGasMargin,
   getTokenTotalSupply,
-  ROUTER_ADDRESS,
-  getAllowance,
   ACYSwapErrorStatus,
   approve,
   checkTokenIsApproved,
-  getUserTokenAmount,
+  getUserTokenBalanceRaw,
   getUserTokenBalance,
   addLiquidityGetEstimated,
   calculateSlippageAmount,
@@ -120,7 +118,7 @@ async function addLiquidity(
       // check user account balance
       console.log("------------------ CHECK BALANCE ------------------");
 
-      let userToken0Balance = await getUserTokenAmount(
+      let userToken0Balance = await getUserTokenBalanceRaw(
         token0IsETH
           ? ETHER
           : new Token(chainId, token0Address, token0Decimal, token0Symbol),
@@ -128,7 +126,7 @@ async function addLiquidity(
         library
       );
 
-      let userToken1Balance = await getUserTokenAmount(
+      let userToken1Balance = await getUserTokenBalanceRaw(
         token1IsETH
           ? ETHER
           : new Token(chainId, token1Address, token1Decimal, token1Symbol),
@@ -484,7 +482,7 @@ async function getAllLiquidityPositions(tokens, chainId, library, account) {
 
     pair = pair.value;
 
-    let userPoolBalance = await getUserTokenAmount(
+    let userPoolBalance = await getUserTokenBalanceRaw(
       pair.liquidityToken,
       account,
       library
