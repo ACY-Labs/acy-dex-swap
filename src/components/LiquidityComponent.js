@@ -537,6 +537,9 @@ async function getAllLiquidityPositions(tokens, chainId, library, account) {
       share: `${poolTokenPercentage}%`,
     });
   }
+
+  console.log("token pairs that user has positions:");
+  console.log(userNonZeroLiquidityPositions);
   return userNonZeroLiquidityPositions;
 }
 
@@ -666,7 +669,7 @@ const LiquidityComponent = () => {
       );
     }
     getAllUserLiquidityPositions();
-  }, [supportedTokens, chainId, library, account]);
+  }, [chainId, library, account]);
 
   return (
     <div>
