@@ -103,7 +103,7 @@ async function swap(
     );
 
     console.log(userToken0Balance);
-    let userHasSufficientBalance = userToken0Balance.gt(
+    let userHasSufficientBalance = userToken0Balance.gte(
       parseUnits(token0Amount, token0Decimal)
     );
 
