@@ -2,6 +2,7 @@ import { Web3ReactProvider } from "@web3-react/core";
 import { Web3Provider } from "@ethersproject/providers";
 import SwapComponent from "./components/SwapComponent";
 import LiquidityComponent from "./components/LiquidityComponent";
+import RemoveLiquidityComponent from "./components/RemoveLiquidityComponent";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./App.css";
 
@@ -21,6 +22,8 @@ function App() {
         <SwapComponent />
         <hr />
         <LiquidityComponent />
+        <hr />
+        <RemoveLiquidityComponent />
       </div>
     </Web3ReactProvider>
   );

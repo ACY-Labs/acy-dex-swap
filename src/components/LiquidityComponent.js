@@ -673,7 +673,7 @@ const LiquidityComponent = () => {
 
   return (
     <div>
-      <h1>liquidity</h1>
+      <h1>Add liquidity</h1>
       <Form>
         <Form.Group className="mb-3" controlId="formBasicEmail">
           <Dropdown>
