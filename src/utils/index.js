@@ -1,4 +1,5 @@
 import { abi as IUniswapV2Router02ABI } from "../abis/IUniswapV2Router02.json";
+import { abi as IUniswapV2PairABI } from "@uniswap/v2-core/build/IUniswapV2Pair.json";
 import ERC20ABI from "../abis/ERC20.json";
 import { getAddress } from "@ethersproject/address";
 import { Contract } from "@ethersproject/contracts";
@@ -522,4 +523,8 @@ export async function getTokenTotalSupply(token, library, account) {
   let parsedResult = new TokenAmount(token, totalSupply.toString());
 
   return parsedResult;
+}
+
+export function usePairContract(pairAddress, library, account) {
+  return getContract(pairAddress, IUniswapV2PairABI, library, account);
 }
