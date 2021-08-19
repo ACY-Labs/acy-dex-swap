@@ -659,14 +659,16 @@ const LiquidityComponent = () => {
 
   useEffect(() => {
     async function getAllUserLiquidityPositions() {
-      setUserLiquidityPositions(
-        await getAllLiquidityPositions(
-          supportedTokens,
-          chainId,
-          library,
-          account
-        )
-      );
+      if(account!=undefined){
+        setUserLiquidityPositions(
+          await getAllLiquidityPositions(
+            supportedTokens,
+            chainId,
+            library,
+            account
+          )
+        );  
+      }
     }
     getAllUserLiquidityPositions();
   }, [chainId, library, account]);
