@@ -2,6 +2,7 @@ import { useWeb3React } from "@web3-react/core";
 import { InjectedConnector } from "@web3-react/injected-connector";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
+  supportedTokens,
   getRouterContract,
   calculateGasMargin,
   getTokenTotalSupply,
@@ -14,7 +15,8 @@ import {
   calculateSlippageAmount,
   INITIAL_ALLOWED_SLIPPAGE,
 } from "../utils";
-import { Form, Button, Alert, Dropdown } from "react-bootstrap";
+
+import {Form, Button, Alert, Dropdown, InputGroup, FormControl} from "react-bootstrap";
 import {
   Token,
   TokenAmount,
@@ -550,10 +552,14 @@ const LiquidityComponent = () => {
   let [token1Balance, setToken1Balance] = useState("0");
   let [token0Amount, setToken0Amount] = useState("0");
   let [token1Amount, setToken1Amount] = useState("0");
+  let [slippageTolerance,setSlippageTolerance]=useState(INITIAL_ALLOWED_SLIPPAGE/100);
+
   let [liquidityBreakdown, setLiquidityBreakdown] = useState();
   let [liquidityStatus, setLiquidityStatus] = useState();
+
   let [needApproveToken0, setNeedApproveToken0] = useState(false);
   let [needApproveToken1, setNeedApproveToken1] = useState(false);
+
   let [approveAmountToken0, setApproveAmountToken0] = useState("0");
   let [approveAmountToken1, setApproveAmountToken1] = useState("0");
   let [userLiquidityPositions, setUserLiquidityPositions] = useState([]);
@@ -561,49 +567,14 @@ const LiquidityComponent = () => {
 
   const individualFieldPlaceholder = "Enter amount";
   const dependentFieldPlaceholder = "Estimated value";
+  const slippageTolerancePlaceholder="please input a number from 1.00 to 100.00";
 
   const { account, chainId, library, activate } = useWeb3React();
   const injected = new InjectedConnector({
     supportedChainIds: [1, 3, 4, 5, 42, 80001],
   });
 
-  let supportedTokens = useMemo(() => [
-    {
-      symbol: "USDC",
-      address: "0xeb8f08a975Ab53E34D8a0330E0D34de942C95926",
-      decimal: 6,
-    },
-    {
-      symbol: "ETH",
-      address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
-      decimal: 18,
-    },
-    {
-      symbol: "WETH",
-      address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
-      decimal: 18,
-    },
-    {
-      symbol: "UNI",
-      address: "0x03e6c12ef405ac3f642b9184eded8e1322de1a9e",
-      decimal: 18,
-    },
-    {
-      symbol: "DAI",
-      address: "0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea",
-      decimal: 18,
-    },
-    {
-      symbol: "cDAI",
-      address: "0x6d7f0754ffeb405d23c51ce938289d4835be3b14",
-      decimal: 8,
-    },
-    {
-      symbol: "WBTC",
-      address: "0x577d296678535e4903d59a4c929b718e1d575e0a",
-      decimal: 8,
-    },
-  ]);
+
 
   useEffect(() => {
     activate(injected);
@@ -667,7 +638,7 @@ const LiquidityComponent = () => {
             library,
             account
           )
-        );  
+        );
       }
     }
     getAllUserLiquidityPositions();
@@ -756,14 +727,50 @@ const LiquidityComponent = () => {
           />
           <small>Balance: {token1Balance}</small>
         </Form.Group>
+
+
+
+
+        <InputGroup size="sm" className="mb-3">
+          <InputGroup.Text id="inputGroup-sizing-sm">Slippage tolerance </InputGroup.Text>
+          <FormControl
+              aria-label="Small"
+              aria-describedby="inputGroup-sizing-sm"
+              placeholder={ slippageTolerancePlaceholder}
+              onChange={(e=>{
+                setSlippageTolerance(e.target.value);
+              })}
+
+          />
+          <InputGroup.Text>%</InputGroup.Text>
+        </InputGroup>
+
+        {/*<Alert variant="danger">*/}
+        {/*  Slippage tolerance: {INITIAL_ALLOWED_SLIPPAGE} bips ({INITIAL_ALLOWED_SLIPPAGE*0.01}%)*/}
+        {/*</Alert>*/}
+
         <Alert variant="danger">
-          Slippage tolerance: {INITIAL_ALLOWED_SLIPPAGE} bips (0.01%)
+          the Slippage Tolerance you choose is [ {slippageTolerance}% ]
         </Alert>
+
+
+        {/*<Alert variant="danger">*/}
+        {/*  Slippage tolerance: {INITIAL_ALLOWED_SLIPPAGE} bips (0.01%)*/}
+        {/*</Alert>*/}
+
+
         <Alert variant="primary">
           {liquidityBreakdown &&
             liquidityBreakdown.map((info) => <p>{info}</p>)}
         </Alert>
         <Alert variant="info">Liquidity status: {liquidityStatus}</Alert>
+
+
+        <div>
+          {needApproveToken0=="true"?"plase click the left approve button":"you don't need to click the left approve button"} <br/>
+          {needApproveToken1=="true"?"plase click the right approve button":"you don't need to click the right approve button"} <br/>
+
+        </div>
 
         {/* APPROVE BUTTONS */}
         <Button
@@ -782,15 +789,7 @@ const LiquidityComponent = () => {
         >
           Approve {token1 && token1.symbol}
         </Button>
-        {/* <Button
-          variant="danger"
-          onClick={() => {
-            clearAllowance(token0.address, library, account);
-            clearAllowance(token1.address, library, account);
-          }}
-        >
-          Clear allowance
-        </Button> */}
+
 
         <Button
           variant="success"
@@ -804,7 +803,7 @@ const LiquidityComponent = () => {
                 ...token1,
                 amount: token1Amount,
               },
-              INITIAL_ALLOWED_SLIPPAGE,
+                100*slippageTolerance,
               exactIn,
               chainId,
               library,

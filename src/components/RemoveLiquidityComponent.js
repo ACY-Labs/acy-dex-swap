@@ -1,8 +1,9 @@
 import { useWeb3React } from "@web3-react/core";
 import { InjectedConnector } from "@web3-react/injected-connector";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Form, Button, Alert, Dropdown } from "react-bootstrap";
+import {Form, Button, Alert, Dropdown, InputGroup, FormControl} from "react-bootstrap";
 import {
+  supportedTokens,
   getRouterContract,
   calculateGasMargin,
   getTokenTotalSupply,
@@ -12,6 +13,8 @@ import {
   getUserTokenBalanceRaw,
   getUserTokenBalance,
   addLiquidityGetEstimated,
+  getUserRemoveLiquidityBalance,
+  removeLiquidityGetEstimated,
   calculateSlippageAmount,
   INITIAL_ALLOWED_SLIPPAGE,
   usePairContract,
@@ -30,6 +33,154 @@ import {
 import { BigNumber } from "@ethersproject/bignumber";
 import { parseUnits } from "@ethersproject/units";
 import { splitSignature } from "@ethersproject/bytes";
+
+async function processInput(
+    inputToken0,
+    inputToken1,
+    allowedSlippage = INITIAL_ALLOWED_SLIPPAGE,
+    exactIn = true,
+    chainId,
+    library,
+    account,
+    setToken0Amount,
+    setToken1Amount,
+    setSignatureData,
+    setRemoveLiquidityStatus
+){
+  const {
+    address: token0Address,
+    symbol: token0Symbol,
+    decimal: token0Decimal,
+    amount: token0Amount,
+  } = inputToken0;
+  const {
+    address: token1Address,
+    symbol: token1Symbol,
+    decimal: token1Decimal,
+    amount: token1Amount,
+  } = inputToken1;
+  let token0IsETH = token0Symbol === "ETH";
+  let token1IsETH = token1Symbol === "ETH";
+  if (!inputToken0.symbol || !inputToken1.symbol)
+    return new ACYSwapErrorStatus("One or more token input is missing");
+  if (
+      exactIn &&
+      (isNaN(parseFloat(token0Amount)) || token0Amount === "0" || !token0Amount)
+  )
+    return new ACYSwapErrorStatus("Format Error");
+  if (
+      !exactIn &&
+      (isNaN(parseFloat(token1Amount)) || token1Amount === "0" || !token1Amount)
+  )
+    return new ACYSwapErrorStatus("Format Error");
+
+  console.log("------------------ RECEIVED TOKEN ------------------");
+  console.log("token0");
+  console.log(inputToken0);
+  console.log("token1");
+  console.log(inputToken1);
+  if (token0IsETH && token1IsETH)
+    return new ACYSwapErrorStatus("Doesn't support ETH to ETH");
+
+  if (
+      (token0IsETH && token1Symbol === "WETH") ||
+      (token0Symbol === "WETH" && token1IsETH)
+  ) {
+    return new ACYSwapErrorStatus("Invalid pair WETH/ETH");
+  }
+  // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
+  else {
+    console.log("ATTEMPT TO APPROVE")
+    console.log("------------------ CONSTRUCT TOKEN ------------------");
+
+    // use WETH for ETHER to work with Uniswap V2 SDK
+    // use WETH for ETHER to work with Uniswap V2 SDK
+    const token0 = token0IsETH
+        ? WETH[chainId]
+        : new Token(chainId, token0Address, token0Decimal, token0Symbol);
+    const token1 = token1IsETH
+        ? WETH[chainId]
+        : new Token(chainId, token1Address, token1Decimal, token1Symbol);
+
+    if (token0.equals(token1)) return new ACYSwapErrorStatus("Equal tokens!");
+    // get pair using our own provider
+    console.log("------------------ CONSTRUCT PAIR ------------------");
+    console.log("FETCH");
+    // if an error occurs, because pair doesn't exists
+    const pair = await Fetcher.fetchPairData(token0, token1, library).catch(
+        (e) => {
+          console.log(e);
+          return new ACYSwapErrorStatus(
+              `${token0.symbol} - ${token1.symbol} pool does not exist.`
+          );
+        }
+    );
+
+    console.log(pair);
+    if (pair instanceof ACYSwapErrorStatus) {
+      setRemoveLiquidityStatus(pair.getErrorText());
+      return pair;
+    }
+
+    console.log("------------------ PARSE AMOUNT ------------------");
+    // convert typed in amount to BigNumber using ethers.js's parseUnits,
+    let parsedAmount = exactIn
+        ? new TokenAmount(token0, parseUnits(token0Amount, token0Decimal))
+        : new TokenAmount(token1, parseUnits(token1Amount, token1Decimal));
+
+    let parsedToken0Amount;
+    let parsedToken1Amount;
+
+    console.log("estimated dependent amount");
+    // console.log(pair.priceOf(token0).quote(inputAmount).raw.toString());
+    let dependentTokenAmount;
+
+    if (exactIn) {
+      dependentTokenAmount = pair.priceOf(token0).quote(parsedAmount);
+      let token0TokenAmount = new TokenAmount(
+          token0,
+          parseUnits(token0Amount, token0Decimal)
+      );
+      parsedToken0Amount =
+          token0 === ETHER
+              ? CurrencyAmount.ether(token0TokenAmount.raw)
+              : token0TokenAmount;
+
+      parsedToken1Amount =
+          token1 === ETHER
+              ? CurrencyAmount.ether(dependentTokenAmount.raw)
+              : dependentTokenAmount;
+
+      setToken1Amount(dependentTokenAmount.toExact());
+    } else {
+      dependentTokenAmount = pair.priceOf(token1).quote(parsedAmount);
+
+      let token1TokenAmount = new TokenAmount(
+          token1,
+          parseUnits(token1Amount, token1Decimal)
+      );
+
+      parsedToken0Amount =
+          token0 === ETHER
+              ? CurrencyAmount.ether(dependentTokenAmount.raw)
+              : dependentTokenAmount;
+
+      parsedToken1Amount =
+          token1 === ETHER
+              ? CurrencyAmount.ether(token1TokenAmount.raw)
+              : token1TokenAmount;
+
+      setToken0Amount(dependentTokenAmount.toExact());
+    }
+
+    console.log(parsedToken0Amount.toExact());
+    console.log(parsedToken1Amount.toExact());
+
+    setRemoveLiquidityStatus("input is ok");
+
+    return "input is ok";
+  }
+}
 
 async function signOrApprove(
   inputToken0,
@@ -173,6 +324,8 @@ async function signOrApprove(
 
         setToken0Amount(dependentTokenAmount.toExact());
       }
+
+
 
       console.log(parsedToken0Amount.toExact());
       console.log(parsedToken1Amount.toExact());
@@ -550,6 +703,9 @@ let status = await (async () => {
     let methodNames
     let args
     let value
+
+    console.log("allowedSlippage");
+    console.log(allowedSlippage);
     const amountsMin = {
       ["CURRENCY_A"]: calculateSlippageAmount(parsedToken0Amount, allowedSlippage)[0].toString(),
       ["CURRENCY_B"]: calculateSlippageAmount(parsedToken1Amount, allowedSlippage)[0].toString()
@@ -656,7 +812,6 @@ let status = await (async () => {
   }
 })();
 
-
 if (status instanceof ACYSwapErrorStatus) {
   setRemoveLiquidityStatus(status.getErrorText());
 } else {
@@ -665,7 +820,6 @@ if (status instanceof ACYSwapErrorStatus) {
 }
 }
 
-
 const RemoveLiquidityComponent = () => {
   let [token0, setToken0] = useState(null);
   let [token1, setToken1] = useState(null);
@@ -673,61 +827,90 @@ const RemoveLiquidityComponent = () => {
   let [token1Balance, setToken1Balance] = useState("0");
   let [token0Amount, setToken0Amount] = useState("0");
   let [token1Amount, setToken1Amount] = useState("0");
+
+  let [slippageTolerance,setSlippageTolerance]=useState(INITIAL_ALLOWED_SLIPPAGE/100);
   let [liquidityBreakdown, setLiquidityBreakdown] = useState();
-  let [liquidityStatus, setLiquidityStatus] = useState();
+  let [needApprove,setNeedApprove]=useState(false);
+
   let [exactIn, setExactIn] = useState(true);
+
+  let [userLiquidityPosition,setUserLiquidityPosition]=useState("you need to get tokens");
+
+
   let [removeLiquidityStatus, setRemoveLiquidityStatus] = useState("");
   let [signatureData, setSignatureData] = useState(null);
 
+
+
   const individualFieldPlaceholder = "Enter amount";
   const dependentFieldPlaceholder = "Estimated value";
+  const slippageTolerancePlaceholder="please input a number from 1.00 to 100.00"
+
 
   const { account, chainId, library, activate } = useWeb3React();
   const injected = new InjectedConnector({
     supportedChainIds: [1, 3, 4, 5, 42, 80001],
   });
 
-  let supportedTokens = useMemo(() => [
-    {
-      symbol: "USDC",
-      address: "0xeb8f08a975Ab53E34D8a0330E0D34de942C95926",
-      decimal: 6,
-    },
-    {
-      symbol: "ETH",
-      address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
-      decimal: 18,
-    },
-    {
-      symbol: "WETH",
-      address: "0xc778417E063141139Fce010982780140Aa0cD5Ab",
-      decimal: 18,
-    },
-    {
-      symbol: "UNI",
-      address: "0x03e6c12ef405ac3f642b9184eded8e1322de1a9e",
-      decimal: 18,
-    },
-    {
-      symbol: "DAI",
-      address: "0x5592ec0cfb4dbc12d3ab100b257153436a1f0fea",
-      decimal: 18,
-    },
-    {
-      symbol: "cDAI",
-      address: "0x6d7f0754ffeb405d23c51ce938289d4835be3b14",
-      decimal: 8,
-    },
-    {
-      symbol: "WBTC",
-      address: "0x577d296678535e4903d59a4c929b718e1d575e0a",
-      decimal: 8,
-    },
-  ]);
 
   useEffect(() => {
     activate(injected);
   }, []);
+
+  useEffect( ()=>{
+    async function getUserRemoveLiquidityPositions(){
+      if(!token0 && !token1){
+        setUserLiquidityPosition("you need to choose  tokens");
+        return;
+      }
+      if(!token0||!token1){
+        setUserLiquidityPosition("please choose the other token ");
+        return;
+      }
+      if(account==undefined){
+        setUserLiquidityPosition("you need to set your account");
+        return;
+      }
+      await getUserRemoveLiquidityBalance(
+          token0,
+          token1,
+          chainId,
+          account,
+          library,
+          setUserLiquidityPosition,
+          setToken0Balance,
+          setToken1Balance
+      );
+    }
+    getUserRemoveLiquidityPositions();
+  },[token0,token1,chainId,account,library]);
+
+  let inputChange = useCallback(async() =>{
+    processInput(
+        {
+          ...token0,
+          amount: token0Amount,
+        },
+        {
+          ...token1,
+          amount: token1Amount,
+        },
+        100*slippageTolerance,
+        exactIn,
+        chainId,
+        library,
+        account,
+        setToken0Amount,
+        setToken1Amount,
+        setSignatureData,
+        setRemoveLiquidityStatus);
+  },[token0,token1,token0Amount,token1Amount,slippageTolerance,exactIn,chainId,library,account]);
+
+
+  useEffect(()=>{
+      inputChange();
+  },[token0Amount,token1Amount]);
+
 
   return (
     <div>
@@ -745,14 +928,7 @@ const RemoveLiquidityComponent = () => {
                   key={index}
                   onClick={async () => {
                     setToken0(token);
-                    setToken0Balance(
-                      await getUserTokenBalance(
-                        token,
-                        chainId,
-                        account,
-                        library
-                      )
-                    );
+
                   }}
                 >
                   {token.symbol}
@@ -765,9 +941,14 @@ const RemoveLiquidityComponent = () => {
             placeholder={
               exactIn ? individualFieldPlaceholder : dependentFieldPlaceholder
             }
-            onChange={(e) => {
+
+            onFocus={(e)=>{
               setExactIn(true);
+            }}
+            onChange={(e) => {
+
               setToken0Amount(e.target.value);
+
             }}
           />
           <small>Balance: {token0Balance}</small>
@@ -785,14 +966,8 @@ const RemoveLiquidityComponent = () => {
                   key={index}
                   onClick={async () => {
                     setToken1(token);
-                    setToken1Balance(
-                      await getUserTokenBalance(
-                        token,
-                        chainId,
-                        account,
-                        library
-                      )
-                    );
+
+
                   }}
                 >
                   {token.symbol}
@@ -805,16 +980,43 @@ const RemoveLiquidityComponent = () => {
             placeholder={
               exactIn ? dependentFieldPlaceholder : individualFieldPlaceholder
             }
-            onChange={(e) => {
+            onFocus={(e)=>{
               setExactIn(false);
+            }}
+
+            onChange={(e) => {
               setToken1Amount(e.target.value);
             }}
           />
           <small>Balance: {token1Balance}</small>
         </Form.Group>
+
+        <h3>user liquidity position</h3>
+        <Alert variant="info">{userLiquidityPosition}</Alert>
+
+
+        <InputGroup size="sm" className="mb-3">
+          <InputGroup.Text id="inputGroup-sizing-sm">Slippage tolerance </InputGroup.Text>
+          <FormControl
+              aria-label="Small"
+              aria-describedby="inputGroup-sizing-sm"
+              placeholder={ slippageTolerancePlaceholder}
+              onChange={(e=>{
+                setSlippageTolerance(e.target.value);
+              })}
+
+          />
+          <InputGroup.Text>%</InputGroup.Text>
+        </InputGroup>
+
+        {/*<Alert variant="danger">*/}
+        {/*  Slippage tolerance: {INITIAL_ALLOWED_SLIPPAGE} bips ({INITIAL_ALLOWED_SLIPPAGE*0.01}%)*/}
+        {/*</Alert>*/}
+
         <Alert variant="danger">
-          Slippage tolerance: {INITIAL_ALLOWED_SLIPPAGE} bips (0.01%)
+          the Slippage Tolerance you choose is [ {slippageTolerance}% ]
         </Alert>
+
         <h3>Remove Liquidity status</h3>
         <Alert variant="info">{removeLiquidityStatus}</Alert>
 
@@ -831,7 +1033,7 @@ const RemoveLiquidityComponent = () => {
                 ...token1,
                 amount: token1Amount,
               },
-              INITIAL_ALLOWED_SLIPPAGE,
+                slippageTolerance*100,
               exactIn,
               chainId,
               library,
@@ -844,9 +1046,9 @@ const RemoveLiquidityComponent = () => {
             console.log("Approve");
           }}
         >
-          Approve {token0 && token0.symbol}
+          Sign or Approve
         </Button>
-
+        {' '}
         <Button
           variant="success"
           onClick={() => {
@@ -859,7 +1061,7 @@ const RemoveLiquidityComponent = () => {
                 ...token1,
                 amount: token1Amount,
               },
-              INITIAL_ALLOWED_SLIPPAGE,
+                slippageTolerance*100,
               exactIn,
               chainId,
               library,
