@@ -577,7 +577,7 @@ const LiquidityComponent = () => {
 
 
   useEffect(() => {
-    activate(injected);
+   // activate(injected);
   }, []);
 
   let getDependentField = useCallback(async () => {

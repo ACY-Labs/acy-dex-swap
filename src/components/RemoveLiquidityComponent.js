@@ -735,7 +735,6 @@ let status = await (async () => {
           account,
           `0x${(Math.floor(new Date().getTime() / 1000) + 60).toString(16)}`
         ]
-
       }
     } else if (signatureData !== null) {
       if (oneCurrencyIsETH) {
@@ -854,7 +853,7 @@ const RemoveLiquidityComponent = () => {
 
 
   useEffect(() => {
-    activate(injected);
+  //  activate(injected);
   }, []);
 
   useEffect( ()=>{
