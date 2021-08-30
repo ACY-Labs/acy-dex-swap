@@ -448,7 +448,7 @@ export async function swapGetEstimated(
     }
 }
 
-async function swap(
+export async function swap(
     inputToken0,
     inputToken1,
     allowedSlippage = INITIAL_ALLOWED_SLIPPAGE,
@@ -828,7 +828,6 @@ const SwapComponent = () => {
     let [swapFunction,setSwapFunction]=useState(0);
     let [swapOperatorStatus,setSwapOperatorStatus]=useState("");
 
-
     const individualFieldPlaceholder = "Enter amount";
     const dependentFieldPlaceholder = "Estimated value";
     const slippageTolerancePlaceholder="please input a number from 1.00 to 100.00";
@@ -1061,6 +1060,28 @@ const SwapComponent = () => {
                     />
                     {token1BalanceShow ? <small>Balance: {token1Balance}</small> :<small>not know yet</small> }
                 </Form.Group>
+
+                <InputGroup size="sm" className="mb-3">
+          <InputGroup.Text id="inputGroup-sizing-sm">Slippage tolerance </InputGroup.Text>
+          <FormControl
+              aria-label="Small"
+              aria-describedby="inputGroup-sizing-sm"
+              placeholder={ slippageTolerancePlaceholder}
+              onChange={(e=>{
+                setSlippageTolerance(e.target.value);
+              })}
+
+          />
+          <InputGroup.Text>%</InputGroup.Text>
+        </InputGroup>
+
+        {/*<Alert variant="danger">*/}
+        {/*  Slippage tolerance: {INITIAL_ALLOWED_SLIPPAGE} bips ({INITIAL_ALLOWED_SLIPPAGE*0.01}%)*/}
+        {/*</Alert>*/}
+
+        <Alert variant="danger">
+          the Slippage Tolerance you choose is [ {slippageTolerance}% ]
+        </Alert>
 
                 <Alert variant="info">Swap status: {swapStatus}</Alert>
 
