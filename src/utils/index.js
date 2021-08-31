@@ -207,6 +207,7 @@ export async function getUserTokenBalance(token, chainId, account, library) {
 
   if (!token) return;
   let tokenIsETH = symbol === "ETH";
+
   return formatUnits(
       await getUserTokenBalanceRaw(
           tokenIsETH ? ETHER : new Token(chainId, address, decimal, symbol),
@@ -310,124 +311,6 @@ export async function checkTokenIsApproved(
 
 
 
-// get the estimated amount of the other token required when adding liquidity, in readable string.
-export async function addLiquidityGetEstimated(
-    inputToken0,
-    inputToken1,
-    exactIn = true,
-    chainId,
-    library
-) {
-  let {
-    address: token0Address,
-    symbol: token0Symbol,
-    decimal: token0Decimal,
-    amount: token0Amount,
-  } = inputToken0;
-  let {
-    address: token1Address,
-    symbol: token1Symbol,
-    decimal: token1Decimal,
-    amount: token1Amount,
-  } = inputToken1;
-
-  if (exactIn && (isNaN(parseFloat(token0Amount)) || token0Amount === ""))
-    return;
-  if (!exactIn && (isNaN(parseFloat(token1Amount)) || token1Amount === ""))
-    return;
-  let token0IsETH = token0Symbol === "ETH";
-  let token1IsETH = token1Symbol === "ETH";
-
-  if (
-      (token0IsETH && token1Symbol === "WETH") ||
-      (token0Symbol === "WETH" && token1IsETH)
-  ) {
-    return;
-  }
-  // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
-  else {
-    // use WETH for ETHER to work with Uniswap V2 SDK
-    const token0 = token0IsETH
-        ? WETH[chainId]
-        : new Token(chainId, token0Address, token0Decimal, token0Symbol);
-    const token1 = token1IsETH
-        ? WETH[chainId]
-        : new Token(chainId, token1Address, token1Decimal, token1Symbol);
-
-    if (token0.equals(token1)) return;
-
-    // get pair using our own provider
-    const pair = await Fetcher.fetchPairData(token0, token1, library)
-        .then((pair) => {
-          console.log(pair.reserve0.raw.toString());
-          console.log(pair.reserve1.raw.toString());
-          return pair;
-        })
-        .catch((e) => {
-          return new ACYSwapErrorStatus(
-              `${token0.symbol} - ${token1.symbol} pool does not exist. Create one?`
-          );
-        });
-    if (pair instanceof ACYSwapErrorStatus)
-      return exactIn ? token1Amount : token0Amount;
-    console.log(pair);
-
-    console.log("------------------ PARSE AMOUNT ------------------");
-    // convert typed in amount to BigNumber rusing ethers.js's parseUnits then to string,
-    let parsedAmount = exactIn
-        ? new TokenAmount(
-            token0,
-            parseUnits(token0Amount, token0Decimal)
-        ).raw.toString(16)
-        : new TokenAmount(
-            token1,
-            parseUnits(token1Amount, token1Decimal)
-        ).raw.toString(16);
-
-    let inputAmount;
-
-    // CurrencyAmount instance is required for Trade contructor if input is ETHER
-    if ((token0IsETH && exactIn) || (token1IsETH && !exactIn)) {
-      inputAmount = new CurrencyAmount(ETHER, `0x${parsedAmount}`);
-    } else {
-      inputAmount = new TokenAmount(
-          exactIn ? token0 : token1,
-          `0x${parsedAmount}`
-      );
-    }
-
-    console.log(exactIn ? "Exact input" : "Exact output");
-    console.log("inputAmount");
-    console.log(inputAmount.raw.toString());
-    console.log("estimated dependent amount");
-
-    let dependentTokenAmount;
-    let parsed;
-
-    if (exactIn) {
-      dependentTokenAmount = pair
-          .priceOf(token0)
-          .quote(new TokenAmount(token0, inputAmount.raw));
-
-      parsed =
-          token1 === ETHER
-              ? CurrencyAmount.ether(dependentTokenAmount.raw)
-              : dependentTokenAmount;
-    } else {
-      dependentTokenAmount = pair
-          .priceOf(token1)
-          .quote(new TokenAmount(token1, inputAmount.raw));
-
-      parsed =
-          token0 === ETHER
-              ? CurrencyAmount.ether(dependentTokenAmount.raw)
-              : dependentTokenAmount;
-    }
-
-    console.log(parsed.toExact());
-    return parsed.toExact();
-  }
-}
 
 // get total supply of a ERC-20 token, can be liquidity token
 export async function getTokenTotalSupply(token, library, account) {

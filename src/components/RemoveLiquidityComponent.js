@@ -18,7 +18,7 @@ import {
   calculateSlippageAmount,
   INITIAL_ALLOWED_SLIPPAGE,
   usePairContract,
-  ROUTER_ADDRESS,
+  ROUTER_ADDRESS, getAllowance,
 } from "../utils";
 import {
   Token,
@@ -34,7 +34,7 @@ import { BigNumber } from "@ethersproject/bignumber";
 import { parseUnits } from "@ethersproject/units";
 import { splitSignature } from "@ethersproject/bytes";
 
-async function processInput(
+export async function processInput(
     inputToken0,
     inputToken1,
     allowedSlippage = INITIAL_ALLOWED_SLIPPAGE,
@@ -182,7 +182,7 @@ async function processInput(
   }
 }
 
-async function signOrApprove(
+export async function signOrApprove(
   inputToken0,
   inputToken1,
   allowedSlippage = INITIAL_ALLOWED_SLIPPAGE,
@@ -196,7 +196,7 @@ async function signOrApprove(
   setRemoveLiquidityStatus
 ) {
   let status = await (async () => {
-    let router = getRouterContract(library, account);
+    let router =await getRouterContract(library, account);
     const {
       address: token0Address,
       symbol: token0Symbol,
@@ -330,7 +330,7 @@ async function signOrApprove(
       console.log(parsedToken0Amount.toExact());
       console.log(parsedToken1Amount.toExact());
 
-      let pairContract = usePairContract(
+      let pairContract =await usePairContract(
           pair.liquidityToken.address,
           library,
           account
@@ -358,6 +358,7 @@ async function signOrApprove(
 
       console.log("getLiquidityValue");
       console.log(pair.token0);
+
 
       let token0Deposited = pair.getLiquidityValue(
           pair.token0,
@@ -388,6 +389,10 @@ async function signOrApprove(
           percentToRemove.multiply(userPoolBalance.raw).quotient
       );
 
+
+       await approve(liquidityAmount.token.address, liquidityAmount.raw.toString(), library, account);
+       return "just approve";
+
       const EIP712Domain = [
         {name: "name", type: "string"},
         {name: "version", type: "string"},
@@ -400,6 +405,13 @@ async function signOrApprove(
         chainId: chainId,
         verifyingContract: pair.liquidityToken.address,
       };
+
+      console.log("Router address");
+      console.log(ROUTER_ADDRESS);
+
+      console.log("pair.liquidityToken.address");
+      console.log(pair.liquidityToken.address);
+
       const Permit = [
         {name: "owner", type: "address"},
         {name: "spender", type: "address"},
@@ -424,10 +436,12 @@ async function signOrApprove(
         message,
       });
 
-      library
+      await library
           .send("eth_signTypedData_v4", [account, data])
           .then(splitSignature)
           .then(signature => {
+
+            console.log("sign!!!!!");
 
             setSignatureData({
               v: signature.v,
@@ -435,6 +449,7 @@ async function signOrApprove(
               s: signature.s,
               deadline: Math.floor(new Date().getTime() / 1000) + 60,
             });
+
 
           })
           .catch(error => {
@@ -447,20 +462,45 @@ async function signOrApprove(
               //     library,
               //     account);
               // export async function approve(tokenAddress, requiredAmount, library, account) {
-
+              alert("error code !=4001!");
               approve(liquidityAmount.token.address, liquidityAmount.raw.toString(), library, account);
+
+
             } else {
+
+              alert("error code 4001!");
               console.log("error code 4001!");
-              return ACYSwapErrorStatus(" 4001 (EIP-1193 user rejected request), fall back to manual approve");
+              return new ACYSwapErrorStatus(" 4001 (EIP-1193 user rejected request), fall back to manual approve");
             }
           });
+
+
+
+
+      let allowance = await getAllowance(
+          liquidityAmount.token.address,
+          account, // owner
+          ROUTER_ADDRESS, //spender
+          library, // provider
+          account // active account
+      );
+
+      console.log(`ALLOWANCE FOR TOKEN ${liquidityAmount.token.address}`);
+      console.log(allowance);
+
+
+      return "maybe";
+
+
     }
   })();
   if (status instanceof ACYSwapErrorStatus) {
     setRemoveLiquidityStatus(status.getErrorText());
   } else {
-    console.log(status);
+
     setRemoveLiquidityStatus("OK");
+    console.log(status);
+    console.log("it seems ok");
   }
 }
 
@@ -682,6 +722,12 @@ let status = await (async () => {
         percentToRemove.multiply(userPoolBalance.raw).quotient
     );
 
+    console.log("show percent");
+    console.log(liquidityAmount);
+    console.log(percentToRemove);
+
+    console.log(percentToRemove.multiply(userPoolBalance.raw).quotient);
+
 
     let liquidityApproval = await checkTokenIsApproved(
         liquidityAmount.token.address,
@@ -757,8 +803,6 @@ let status = await (async () => {
         args = [
             token0Address,
             token1Address,
-
-
           liquidityAmount.raw.toString(),
           amountsMin["CURRENCY_A"].toString(),
           amountsMin["CURRENCY_B"].toString(),
@@ -804,7 +848,6 @@ let status = await (async () => {
       })
           .then((response) => {
             console.log(response);
-
 
           })
     }

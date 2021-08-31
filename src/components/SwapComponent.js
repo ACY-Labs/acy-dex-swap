@@ -825,7 +825,7 @@ const SwapComponent = () => {
 
     let [swapButtonContent,setSwapButtonContent] = useState("Connect to Wallet");
     let [swapButtonState,setSwapButtonState] = useState(true);
-    let [swapFunction,setSwapFunction]=useState(0);
+
     let [swapOperatorStatus,setSwapOperatorStatus]=useState("");
 
     const individualFieldPlaceholder = "Enter amount";
@@ -944,6 +944,17 @@ const SwapComponent = () => {
     useEffect(() => {
         t1Changed();
     }, [token1Amount]);
+
+    useEffect(()=>{
+        if(account==undefined){
+            setSwapButtonState(true);
+            setSwapButtonContent("Connect to Wallet");
+        }else {
+            setSwapButtonState(false);
+            setSwapButtonContent("swap");
+        }
+
+    },[account]);
     return (
         <div>
             <button
@@ -1112,9 +1123,9 @@ const SwapComponent = () => {
                     disabled={!swapButtonState}
 
                     onClick={() => {
-                        if (swapFunction == 0) {
+                        if (account==undefined) {
                             activate(injected);
-                            setSwapFunction(1);
+
                             setSwapButtonContent("choose tokens and amount");
                             setSwapButtonState(false);
 
