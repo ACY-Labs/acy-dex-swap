@@ -12,9 +12,6 @@ import {
   checkTokenIsApproved,
   getUserTokenBalanceRaw,
   getUserTokenBalance,
-  addLiquidityGetEstimated,
-  getUserRemoveLiquidityBalance,
-  removeLiquidityGetEstimated,
   calculateSlippageAmount,
   INITIAL_ALLOWED_SLIPPAGE,
   usePairContract,
@@ -33,6 +30,282 @@ import {
 import { BigNumber } from "@ethersproject/bignumber";
 import { parseUnits } from "@ethersproject/units";
 import { splitSignature } from "@ethersproject/bytes";
+
+
+// useless
+export async function getUserRemoveLiquidityBalance(
+    tokenA,
+    tokenB,
+    chainId,
+    account,
+    library,
+    setUserLiquidityPosition,
+    setToken0Balance,
+    setToken1Balance
+) {
+  let {
+    address: token0Address,
+    symbol: token0Symbol,
+    decimal: token0Decimal,
+  } = tokenA;
+  let {
+    address: token1Address,
+    symbol: token1Symbol,
+    decimal: token1Decimal,
+  } = tokenB;
+
+
+  const token0 = new Token(
+      chainId,
+      token0Address,
+      token0Decimal,
+      token0Symbol
+  );
+  const token1 = new Token(
+      chainId,
+      token1Address,
+      token1Decimal,
+      token1Symbol
+  );
+
+  if(token0.equals(token1)) {
+    setUserLiquidityPosition("two token can't be the same");
+    return;
+  }
+
+  let checkLiquidityPositionTasks=[];
+  let userNonZeroLiquidityPositions = [];
+
+  // queue get pair task
+  const pairTask = Fetcher.fetchPairData(token0, token1, library);
+  checkLiquidityPositionTasks.push(pairTask);
+
+  let pairs = await Promise.allSettled(checkLiquidityPositionTasks);
+
+  for(let pair of pairs){
+    if (pair.status === "rejected") {
+      setUserLiquidityPosition("this pair's fetch is reject");
+      return;
+    }
+    pair=pair.value;
+    let userPoolBalance = await getUserTokenBalanceRaw(
+        pair.liquidityToken,
+        account,
+        library
+    );
+
+    if (userPoolBalance.isZero()) {
+      setToken0Balance("0");
+      setToken1Balance("0");
+      setUserLiquidityPosition("user pool balance is zero");
+      return;
+    }
+
+    userPoolBalance = new TokenAmount(pair.liquidityToken, userPoolBalance);
+
+    let totalPoolTokens = await getTokenTotalSupply(
+        pair.liquidityToken,
+        library,
+        account
+    );
+
+    let token0Deposited = pair.getLiquidityValue(
+        pair.token0,
+        totalPoolTokens,
+        userPoolBalance,
+        false
+    );
+
+    let token1Deposited = pair.getLiquidityValue(
+        pair.token1,
+        totalPoolTokens,
+        userPoolBalance,
+        false
+    );
+    let totalSupply = await getTokenTotalSupply(
+        pair.liquidityToken,
+        library,
+        account
+    );
+
+    let liquidityMinted = pair.getLiquidityMinted(
+        totalSupply,
+        token0Deposited,
+        token1Deposited
+    );
+
+    let poolTokenPercentage = new Percent(
+        liquidityMinted.raw,
+        totalSupply.raw
+    ).toFixed(4);
+
+    userNonZeroLiquidityPositions.push([
+            `pool:${pair.token0.symbol}/${pair.token1.symbol} `,
+        `liquidityMinted: ${liquidityMinted.toSignificant(6)} `,
+        `token0Amount: ${token0Deposited.toSignificant(6)} ${pair.token0.symbol} `,
+        `token1Amount:${token1Deposited.toSignificant(6)} ${pair.token1.symbol} `,
+        `token0Reserve: ${pair.reserve0.toExact()} ${pair.token0.symbol} `,
+        `token1Reserve: ${pair.reserve1.toExact()} ${pair.token1.symbol} `,
+        `share: ${poolTokenPercentage}% `,
+    ]);
+
+    console.log("token pairs that user has positions:");
+    console.log(userNonZeroLiquidityPositions[0]);
+
+    setToken0Balance(`${token0Deposited.toSignificant(6)} ${pair.token0.symbol}`);
+    setToken1Balance(`${token1Deposited.toSignificant(6)} ${pair.token1.symbol}`);
+
+    setUserLiquidityPosition(userNonZeroLiquidityPositions[0]);
+
+    return;
+  }
+}
+
+// export function check(
+//     inputToken0,
+//     inputToken1,
+//     exactIn,
+//     chainId,
+//     library
+// ){
+//   let {
+//     address: token0Address,
+//     symbol: token0Symbol,
+//     decimal: token0Decimal,
+//     amount: token0Amount,
+//   } = inputToken0;
+//   let {
+//     address: token1Address,
+//     symbol: token1Symbol,
+//     decimal: token1Decimal,
+//     amount: token1Amount,
+//   } = inputToken1;
+//
+//   if (exactIn && (isNaN(parseFloat(token0Amount)) || token0Amount === ""))
+//     return false;
+//   if (!exactIn && (isNaN(parseFloat(token1Amount)) || token1Amount === ""))
+//     return false;
+//   return true;
+// }
+// get the estimated amount of the other token required when adding liquidity, in readable string.
+export async function GetEstimated(
+    inputToken0,
+    inputToken1,
+    exactIn = true,
+    chainId,
+    library
+) {
+  let {
+    address: token0Address,
+    symbol: token0Symbol,
+    decimal: token0Decimal,
+    amount: token0Amount,
+  } = inputToken0;
+  let {
+    address: token1Address,
+    symbol: token1Symbol,
+    decimal: token1Decimal,
+    amount: token1Amount,
+  } = inputToken1;
+
+  if (exactIn && (isNaN(parseFloat(token0Amount)) || token0Amount === ""))
+    return;
+  if (!exactIn && (isNaN(parseFloat(token1Amount)) || token1Amount === ""))
+    return
+  let token0IsETH = token0Symbol === "ETH";
+  let token1IsETH = token1Symbol === "ETH";
+
+  if (
+      (token0IsETH && token1Symbol === "WETH") ||
+      (token0Symbol === "WETH" && token1IsETH)
+  ) {
+    return;
+  }
+  // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
+  else {
+    // use WETH for ETHER to work with Uniswap V2 SDK
+    const token0 = token0IsETH
+        ? WETH[chainId]
+        : new Token(chainId, token0Address, token0Decimal, token0Symbol);
+    const token1 = token1IsETH
+        ? WETH[chainId]
+        : new Token(chainId, token1Address, token1Decimal, token1Symbol);
+
+    if (token0.equals(token1)) return;
+
+    // get pair using our own provider
+    const pair = await Fetcher.fetchPairData(token0, token1, library)
+        .then((pair) => {
+          console.log(pair.reserve0.raw.toString());
+          console.log(pair.reserve1.raw.toString());
+          return pair;
+        })
+        .catch((e) => {
+          return new ACYSwapErrorStatus(
+              `${token0.symbol} - ${token1.symbol} pool does not exist. Create one?`
+          );
+        });
+    if (pair instanceof ACYSwapErrorStatus)
+      return exactIn ? token1Amount : token0Amount;
+    console.log(pair);
+
+    console.log("------------------ PARSE AMOUNT ------------------");
+    // convert typed in amount to BigNumber rusing ethers.js's parseUnits then to string,
+    let parsedAmount = exactIn
+        ? new TokenAmount(
+            token0,
+            parseUnits(token0Amount, token0Decimal)
+        ).raw.toString(16)
+        : new TokenAmount(
+            token1,
+            parseUnits(token1Amount, token1Decimal)
+        ).raw.toString(16);
+
+    let inputAmount;
+
+    // CurrencyAmount instance is required for Trade contructor if input is ETHER
+    if ((token0IsETH && exactIn) || (token1IsETH && !exactIn)) {
+      inputAmount = new CurrencyAmount(ETHER, `0x${parsedAmount}`);
+    } else {
+      inputAmount = new TokenAmount(
+          exactIn ? token0 : token1,
+          `0x${parsedAmount}`
+      );
+    }
+
+    console.log(exactIn ? "Exact input" : "Exact output");
+    console.log("inputAmount");
+    console.log(inputAmount.raw.toString());
+    console.log("estimated dependent amount");
+
+    let dependentTokenAmount;
+    let parsed;
+
+    if (exactIn) {
+      dependentTokenAmount = pair
+          .priceOf(token0)
+          .quote(new TokenAmount(token0, inputAmount.raw));
+
+      parsed =
+          token1 === ETHER
+              ? CurrencyAmount.ether(dependentTokenAmount.raw)
+              : dependentTokenAmount;
+    } else {
+      dependentTokenAmount = pair
+          .priceOf(token1)
+          .quote(new TokenAmount(token1, inputAmount.raw));
+
+      parsed =
+          token0 === ETHER
+              ? CurrencyAmount.ether(dependentTokenAmount.raw)
+              : dependentTokenAmount;
+    }
+
+    console.log(parsed.toExact());
+    return parsed.toExact();
+  }
+}
+
 
 export async function processInput(
     inputToken0,
@@ -383,6 +656,11 @@ export async function signOrApprove(
           independentAmount.raw,
           liquidityValue.raw
       );
+     //
+     // percentToRemove = new Percent(
+     //      "100",
+     //      "100"
+     //  );
 
       let liquidityAmount = new TokenAmount(
           userPoolBalance.token,
@@ -390,8 +668,10 @@ export async function signOrApprove(
       );
 
 
-       await approve(liquidityAmount.token.address, liquidityAmount.raw.toString(), library, account);
-       return "just approve";
+
+       //
+       // await approve(liquidityAmount.token.address, liquidityAmount.raw.toString(), library, account);
+       // return "just approve";
 
       const EIP712Domain = [
         {name: "name", type: "string"},
@@ -436,12 +716,14 @@ export async function signOrApprove(
         message,
       });
 
-      await library
+     library
           .send("eth_signTypedData_v4", [account, data])
           .then(splitSignature)
           .then(signature => {
 
-            console.log("sign!!!!!");
+            console.log("sign!!!!!!!");
+            console.log(signature);
+
 
             setSignatureData({
               v: signature.v,
@@ -465,7 +747,6 @@ export async function signOrApprove(
               alert("error code !=4001!");
               approve(liquidityAmount.token.address, liquidityAmount.raw.toString(), library, account);
 
-
             } else {
 
               alert("error code 4001!");
@@ -473,31 +754,22 @@ export async function signOrApprove(
               return new ACYSwapErrorStatus(" 4001 (EIP-1193 user rejected request), fall back to manual approve");
             }
           });
-
-
-
-
-      let allowance = await getAllowance(
-          liquidityAmount.token.address,
-          account, // owner
-          ROUTER_ADDRESS, //spender
-          library, // provider
-          account // active account
-      );
-
-      console.log(`ALLOWANCE FOR TOKEN ${liquidityAmount.token.address}`);
-      console.log(allowance);
-
-
+      // let allowance = await getAllowance(
+      //     liquidityAmount.token.address,
+      //     account, // owner
+      //     ROUTER_ADDRESS, //spender
+      //     library, // provider
+      //     account // active account
+      // );
+      //
+      // console.log(`ALLOWANCE FOR TOKEN ${liquidityAmount.token.address}`);
+      // console.log(allowance);
       return "maybe";
-
-
     }
   })();
   if (status instanceof ACYSwapErrorStatus) {
     setRemoveLiquidityStatus(status.getErrorText());
   } else {
-
     setRemoveLiquidityStatus("OK");
     console.log(status);
     console.log("it seems ok");
@@ -590,7 +862,6 @@ let status = await (async () => {
         : new Token(chainId, token1Address, token1Decimal, token1Symbol);
 
     if (token0.equals(token1)) return new ACYSwapErrorStatus("Equal tokens!");
-
 
     // get pair using our own provider
     console.log("------------------ CONSTRUCT PAIR ------------------");
@@ -716,6 +987,10 @@ let status = await (async () => {
         independentAmount.raw,
         liquidityValue.raw
     );
+    // let percentToRemove = new Percent(
+    //     "100",
+    //     "100"
+    // );
 
     let liquidityAmount = new TokenAmount(
         userPoolBalance.token,
@@ -725,10 +1000,45 @@ let status = await (async () => {
     console.log("show percent");
     console.log(liquidityAmount);
     console.log(percentToRemove);
-
     console.log(percentToRemove.multiply(userPoolBalance.raw).quotient);
-
-
+//=========================================================
+//     const EIP712Domain = [
+//       {name: "name", type: "string"},
+//       {name: "version", type: "string"},
+//       {name: "chainId", type: "uint256"},
+//       {name: "verifyingContract", type: "address"},
+//     ];
+//     const domain = {
+//       name: "Uniswap V2",
+//       version: "1",
+//       chainId: chainId,
+//       verifyingContract: pair.liquidityToken.address,
+//     };
+//     const Permit = [
+//       {name: "owner", type: "address"},
+//       {name: "spender", type: "address"},
+//       {name: "value", type: "uint256"},
+//       {name: "nonce", type: "uint256"},
+//       {name: "deadline", type: "uint256"},
+//     ];
+//
+//     const message = {
+//       owner: account,
+//       spender: ROUTER_ADDRESS,
+//       value: liquidityAmount.raw.toString(),
+//       nonce: nonce.toHexString(),
+//       deadline: Math.floor(new Date().getTime() / 1000) + 60,
+//     };
+//     const data = JSON.stringify({
+//       types: {
+//         EIP712Domain,
+//         Permit,
+//       },
+//       domain,
+//       primaryType: "Permit",
+//       message,
+//     });
+// ============================================================
     let liquidityApproval = await checkTokenIsApproved(
         liquidityAmount.token.address,
         liquidityAmount.raw.toString(),
@@ -736,8 +1046,11 @@ let status = await (async () => {
         account
     );
 
-    if (!liquidityApproval) {
+
+    if (!liquidityApproval && signatureData === null) {
       console.log("liquidityApproval is not ok");
+      console.log(signatureData);
+
       return new ACYSwapErrorStatus(
           'need approve for liquidityApproval'
       );
@@ -759,6 +1072,7 @@ let status = await (async () => {
 
     if (liquidityApproval) {
       if (oneCurrencyIsETH) {
+        console.log("111");
         methodNames = ['removeLiquidityETH', 'removeLiquidityETHSupportingFeeOnTransferTokens']
         args = [
           token1IsETH ? token0Address : token1Address,
@@ -771,6 +1085,7 @@ let status = await (async () => {
           `0x${(Math.floor(new Date().getTime() / 1000) + 60).toString(16)}`
         ]
       } else {
+        console.log("222");
         methodNames = ['removeLiquidity']
         args = [
           token0Address,
@@ -783,7 +1098,9 @@ let status = await (async () => {
         ]
       }
     } else if (signatureData !== null) {
+
       if (oneCurrencyIsETH) {
+        console.log("333");
         methodNames = ['removeLiquidityETHWithPermit', 'removeLiquidityETHWithPermitSupportingFeeOnTransferTokens']
         args = [
           token1IsETH ? token0Address : token1Address,
@@ -799,6 +1116,7 @@ let status = await (async () => {
         ]
 
       } else {
+        console.log("444");
         methodNames = ['removeLiquidityWithPermit']
         args = [
             token0Address,
@@ -814,12 +1132,12 @@ let status = await (async () => {
           signatureData.s
         ]
       }
-
     } else {
       return new ACYSwapErrorStatus(
           "Attempting to confirm without approval or a signature. Please contact support."
       );
     }
+
 
     const safeGasEstimates = await Promise.all(
         methodNames.map(methodName=>
@@ -827,7 +1145,7 @@ let status = await (async () => {
                 .then(calculateGasMargin)
                 .catch(error => {
                   console.error(`estimateGas failed`, methodName, args, error)
-                  return ACYSwapErrorStatus(console.error(`estimateGas failed`, methodName, args, error))
+                  return new ACYSwapErrorStatus(console.error(`estimateGas failed`, methodName, args, error))
                 })
         )
     )
@@ -863,31 +1181,40 @@ if (status instanceof ACYSwapErrorStatus) {
 }
 
 const RemoveLiquidityComponent = () => {
+
   let [token0, setToken0] = useState(null);
   let [token1, setToken1] = useState(null);
+
   let [token0Balance, setToken0Balance] = useState("0");
   let [token1Balance, setToken1Balance] = useState("0");
+
   let [token0Amount, setToken0Amount] = useState("0");
   let [token1Amount, setToken1Amount] = useState("0");
 
-  let [slippageTolerance,setSlippageTolerance]=useState(INITIAL_ALLOWED_SLIPPAGE/100);
-  let [liquidityBreakdown, setLiquidityBreakdown] = useState();
-  let [needApprove,setNeedApprove]=useState(false);
+  let [token0BalanceShow,setToken0BalanceShow]=useState(false);
+  let [token1BalanceShow,setToken1BalanceShow]=useState(false);
 
   let [exactIn, setExactIn] = useState(true);
 
+
+  let [slippageTolerance,setSlippageTolerance]=useState(INITIAL_ALLOWED_SLIPPAGE/100);
+
+  // 0到100之间的一个数，removePercent% 表示要移除的比例
+  let [removePercent,setRemovePercent] = useState(0);
+
+  let [needApprove,setNeedApprove]=useState(false);
+  let [approveButtonStatus,setApproveButtonStatus] = useState(false);
   let [userLiquidityPosition,setUserLiquidityPosition]=useState("you need to get tokens");
 
-
+  let [liquidityBreakdown, setLiquidityBreakdown] = useState("");
   let [removeLiquidityStatus, setRemoveLiquidityStatus] = useState("");
+
+
   let [signatureData, setSignatureData] = useState(null);
-
-
 
   const individualFieldPlaceholder = "Enter amount";
   const dependentFieldPlaceholder = "Estimated value";
-  const slippageTolerancePlaceholder="please input a number from 1.00 to 100.00"
-
+  const slippageTolerancePlaceholder="please input a number from 1.00 to 100.00";
 
   const { account, chainId, library, activate } = useWeb3React();
   const injected = new InjectedConnector({
@@ -906,7 +1233,7 @@ const RemoveLiquidityComponent = () => {
         return;
       }
       if(!token0||!token1){
-        setUserLiquidityPosition("please choose the other token ");
+        setUserLiquidityPosition("please choose the other token");
         return;
       }
       if(account==undefined){
@@ -953,7 +1280,6 @@ const RemoveLiquidityComponent = () => {
       inputChange();
   },[token0Amount,token1Amount]);
 
-
   return (
     <div>
       <h1>Remove liquidity</h1>
@@ -988,9 +1314,7 @@ const RemoveLiquidityComponent = () => {
               setExactIn(true);
             }}
             onChange={(e) => {
-
               setToken0Amount(e.target.value);
-
             }}
           />
           <small>Balance: {token0Balance}</small>
@@ -1008,7 +1332,6 @@ const RemoveLiquidityComponent = () => {
                   key={index}
                   onClick={async () => {
                     setToken1(token);
-
 
                   }}
                 >
@@ -1088,7 +1411,7 @@ const RemoveLiquidityComponent = () => {
             console.log("Approve");
           }}
         >
-          Sign or Approve
+          Approve
         </Button>
         {' '}
         <Button

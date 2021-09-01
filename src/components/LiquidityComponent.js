@@ -30,14 +30,12 @@ import { BigNumber } from "@ethersproject/bignumber";
 import { parseUnits } from "@ethersproject/units";
 
 
-export async function check(
+export  function check(
     inputToken0,
     inputToken1,
-    allowedSlippage = INITIAL_ALLOWED_SLIPPAGE,
-    exactIn = true,
+    exactIn ,
     chainId,
-    library,
-    account
+    library
 ){
   let {
     address: token0Address,
@@ -51,20 +49,19 @@ export async function check(
     decimal: token1Decimal,
     amount: token1Amount,
   } = inputToken1;
+
+
   if(!inputToken0.symbol || !inputToken1.symbol)
     return false;
 
-  if(exactIn && token0Amount=="") return false;
-  if(!exactIn && token1Amount=="") return false;
-  if(!inputToken0.symbol ||!inputToken1.symbol){
-    alert("One or more token input is missing");
-    return false;
-  }
+  if(exactIn && token0Amount=="0") return false;
+  if(!exactIn && token1Amount=="0") return false;
 
   if (exactIn && (isNaN(parseFloat(token0Amount)))){
     // alert("token0Amount is wrong ");
     return false;
   }
+
   if (!exactIn && (isNaN(parseFloat(token1Amount)))){
     // alert("token0Amount is wrong");
     return false;
@@ -86,17 +83,22 @@ export async function getEstimated(
     setToken1,
     setToken0Amount,
     setToken1Amount,
-    setEstimatedStatus,
     setNeedApproveToken0,
     setNeedApproveToken1,
     setApproveAmountToken0,
     setApproveAmountToken1,
     setLiquidityBreakdown,
     setButtonContent,
-    setButtonStatus
+    setButtonStatus,
+    setLiquidityStatus
 )
 {
   let status = await (async ()=>{
+     setLiquidityBreakdown("");
+     setButtonContent("loading...");
+     setButtonStatus(false);
+     setLiquidityStatus("");
+
     console.log(FACTORY_ADDRESS);
     let router = getRouterContract(library, account);
 
@@ -118,16 +120,21 @@ export async function getEstimated(
 
 
     if(token0IsETH && token1IsETH){
+      setLiquidityBreakdown("");
       setButtonContent("Doesn't support ETH to ETH");
       setButtonStatus(false);
+      setLiquidityStatus("");
 
       return new ACYSwapErrorStatus("Doesn't support ETH to ETH");
     }else if(
         (token0IsETH && token1Symbol === "WETH") ||
         (token0Symbol === "WETH" && token1IsETH)
     ){
-      setButtonStatus(false);
+      setLiquidityBreakdown("");
       setButtonContent("Invalid pair WETH/ETH");
+      setButtonStatus(false);
+      setLiquidityStatus("");
+
       return new ACYSwapErrorStatus("Invalid pair WETH/ETH");
     }
     // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
@@ -141,8 +148,11 @@ export async function getEstimated(
           : new Token(chainId, token1Address, token1Decimal, token1Symbol);
 
       if (token0.equals(token1)) {
+        setLiquidityBreakdown("");
         setButtonContent("Equal tokens");
         setButtonStatus(false);
+        setLiquidityStatus("");
+
         return new ACYSwapErrorStatus("Equal tokens!");
       }
       // get pair using our own provider
@@ -159,8 +169,6 @@ export async function getEstimated(
           });
       let noLiquidity =false;
       if (pair instanceof ACYSwapErrorStatus){
-        setButtonStatus(false);
-        setButtonContent("add liquidity");
         noLiquidity=true;
         alert(pair.getErrorText());
       }
@@ -170,7 +178,6 @@ export async function getEstimated(
       let parsedAmount = exactIn
           ? new TokenAmount(token0, parseUnits(token0Amount, token0Decimal))
           : new TokenAmount(token1, parseUnits(token1Amount, token1Decimal));
-
 
       let parsedToken0Amount;
       let parsedToken1Amount;
@@ -194,7 +201,8 @@ export async function getEstimated(
                   ? CurrencyAmount.ether(dependentTokenAmount.raw)
                   : dependentTokenAmount;
           setToken1Amount(dependentTokenAmount.toExact());
-        }else{
+        }else
+          {
           dependentTokenAmount = pair.priceOf(token1).quote(parsedAmount);
 
           let token1TokenAmount = new TokenAmount(
@@ -212,18 +220,22 @@ export async function getEstimated(
                   : token1TokenAmount;
           setToken0Amount(dependentTokenAmount.toExact());
         }
-
       }else {
         if(token0Amount==="0"||token1Amount==="0"){
           if(noLiquidity){
+            setLiquidityBreakdown("");
             setButtonStatus(false);
             setButtonContent("create new pool");
+            setLiquidityStatus("");
+
             return new ACYSwapErrorStatus(
                 "Creating a new pool, please enter both amounts"
             );
           }else{
+            setLiquidityBreakdown("");
             setButtonStatus(false);
-            setButtonContent("create new pool");
+            setButtonContent("add liquidity");
+            setLiquidityStatus("");
             return new ACYSwapErrorStatus(
                 "One field is empty, it's probably a new pool"
             );
@@ -239,10 +251,6 @@ export async function getEstimated(
             token1,
             parseUnits(token1Amount, token1Decimal)
         );
-
-        setButtonContent("create new pool");
-        setButtonStatus(true);
-
       }
 
 
@@ -275,17 +283,11 @@ export async function getEstimated(
           userToken0Balance.gte(parseUnits(token0Amount, token0Decimal)) &&
           userToken1Balance.gte(parseUnits(token1Amount, token1Decimal));
 
-
-
       // quit if user doesn't have enough balance, otherwise this will cause error
-      if (!userHasSufficientBalance){
+      if (!userHasSufficientBalance) {
         setButtonContent("Not enough balance");
         setButtonStatus(false);
         return new ACYSwapErrorStatus("Not enough balance");
-
-      }else {
-        setButtonStatus(true);
-        setButtonContent("add liquidity");
 
       }
 
@@ -300,8 +302,6 @@ export async function getEstimated(
         console.log(pair.liquidityToken);
 
         try {
-
-
           let liquidityMinted = pair.getLiquidityMinted(
               totalSupply,
               parsedToken0Amount,
@@ -328,9 +328,16 @@ export async function getEstimated(
         }catch(e) {
           // alert("something wrong");
           if (e instanceof InsufficientReservesError) {
+
+            setButtonContent("Insufficient reserve!");
+            setButtonStatus(false);
+            alert("something wrong !!!!");
            return new ACYSwapErrorStatus("Insufficient reserve!");
             console.log("Insufficient reserve!");
           } else {
+
+            setButtonContent("Unhandled exception!");
+            setButtonStatus(false);
             return new ACYSwapErrorStatus("Unhandled exception!");
 
             console.log("Unhandled exception!");
@@ -338,11 +345,13 @@ export async function getEstimated(
           }
         }
         }
-
       else
         {
           setLiquidityBreakdown(["new pool"]);
         }
+
+
+
         console.log("------------------ ALLOWANCE ------------------");
         let approveStatus = 0;
         if (!token0IsETH) {
@@ -396,21 +405,25 @@ export async function getEstimated(
               }`
           );
         }
-        setButtonStatus(true);
 
 
+      setButtonStatus(true);
 
-
+      if(noLiquidity){
+        setButtonContent("create a new pool");
+      }else {
+        setButtonContent("add liquidity");
+      }
+      // setButtonContent("ADD liquidity");
 
     }//  end of
     // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
   })();
 
-
   if(status instanceof  ACYSwapErrorStatus){
-    setEstimatedStatus(status.getErrorText());
+   console.log(status.getErrorText());
   }else {
-    setEstimatedStatus("estimated is ok");
+    console.log("estimated is ok");
   }
 }
 
@@ -944,8 +957,8 @@ export async function getAllLiquidityPositions(tokens, chainId, library, account
 const LiquidityComponent = ()=>{
   let [token0, setToken0] = useState(null);
   let [token1, setToken1] = useState(null);
-  let [token0Balance, setToken0Balance] = useState("0");
-  let [token1Balance, setToken1Balance] = useState("0");
+  let [token0Balance, setToken0Balance] = useState("not know yet");
+  let [token1Balance, setToken1Balance] = useState("not know yet");
   let [token0Amount, setToken0Amount] = useState("0");
   let [token1Amount, setToken1Amount] = useState("0");
   let [token0BalanceShow,setToken0BalanceShow]=useState(false);
@@ -956,8 +969,7 @@ const LiquidityComponent = ()=>{
 
   let [slippageTolerance,setSlippageTolerance]=useState(INITIAL_ALLOWED_SLIPPAGE/100);
 
-  let [estimatedStatus,setEstimatedStatus]=useState();
-  let [liquidityStatus, setLiquidityStatus] = useState();
+
 
   let [needApproveToken0, setNeedApproveToken0] = useState(false);
   let [needApproveToken1, setNeedApproveToken1] = useState(false);
@@ -965,14 +977,14 @@ const LiquidityComponent = ()=>{
   let [approveAmountToken0, setApproveAmountToken0] = useState("0");
   let [approveAmountToken1, setApproveAmountToken1] = useState("0");
 
+  let [estimatedStatus,setEstimatedStatus]=useState();
   let [liquidityBreakdown, setLiquidityBreakdown] = useState();
-
   let [buttonContent,setButtonContent]=useState("connect to wallet");
   let [buttonStatus,setButtonStatus]=useState(true);
+  let [liquidityStatus, setLiquidityStatus] = useState();
 
 
   let [userLiquidityPositions, setUserLiquidityPositions] = useState([]);
-
 
 
   const individualFieldPlaceholder = "Enter amount";
@@ -992,8 +1004,7 @@ const LiquidityComponent = ()=>{
   let t0Changed = useCallback(async ()=>{
     if (!token0 || !token1) return;
     if (!exactIn) return;
-
-    let state = check(
+    let state=check(
         {
           ...token0,
           amount: token0Amount,
@@ -1002,14 +1013,17 @@ const LiquidityComponent = ()=>{
           ...token1,
           amount: token1Amount,
         },
+
         exactIn,
         chainId,
-        library,
-        account
+        library
     );
+
     if(state==false) return;
 
-    console.log("before!!!!!!!!!!!!");
+    console.log("wawawa");
+    console.log(state);
+
     await getEstimated(
         {
           ...token0,
@@ -1028,25 +1042,22 @@ const LiquidityComponent = ()=>{
         setToken1,
         setToken0Amount,
         setToken1Amount,
-        setEstimatedStatus,
         setNeedApproveToken0,
         setNeedApproveToken1,
         setApproveAmountToken0,
         setApproveAmountToken1,
         setLiquidityBreakdown,
         setButtonContent,
-        setButtonStatus
+        setButtonStatus,
+        setLiquidityStatus
     );
-    console.log("after!!!!!!!!!!!!");
-
-
-  },[token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library,account]);
+  },[token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library,account,needApproveToken0,needApproveToken1]);
 
   let t1Changed = useCallback(async ()=>{
     if (!token0 || !token1) return;
     if (exactIn) return;
 
-    let state = check(
+    let state=check(
         {
           ...token0,
           amount: token0Amount,
@@ -1055,13 +1066,18 @@ const LiquidityComponent = ()=>{
           ...token1,
           amount: token1Amount,
         },
+
         exactIn,
         chainId,
-        library,
-        account
+        library
     );
+
     if(state==false) return;
 
+    console.log("maybe");
+    console.log(state);
+    console.log("token0Amount:"+token0Amount);
+    console.log("token1Amount:"+token1Amount);
 
 
     await getEstimated(
@@ -1082,26 +1098,28 @@ const LiquidityComponent = ()=>{
         setToken1,
         setToken0Amount,
         setToken1Amount,
-        setEstimatedStatus,
         setNeedApproveToken0,
         setNeedApproveToken1,
         setApproveAmountToken0,
         setApproveAmountToken1,
         setLiquidityBreakdown,
         setButtonContent,
-        setButtonStatus
+        setButtonStatus,
+        setLiquidityStatus
     );
 
-
-  },[token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library,account]);
+  },[token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library]);
 
   useEffect(()=>{
+    setLiquidityBreakdown("");
+    setLiquidityStatus("");
     t0Changed();
-  },[token0Amount]);
+  },[token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library,account]);
   useEffect(()=>{
+    setLiquidityBreakdown("");
+    setLiquidityStatus("");
     t1Changed();
-
-  },[token1Amount]);
+  },[token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library,account]);
 
 
   useEffect(()=>{
@@ -1112,7 +1130,7 @@ const LiquidityComponent = ()=>{
       setButtonContent("choose tokens and amount");
       setButtonStatus(false);
     }
-  },[account]);
+  },[token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library,account]);
 
 
   useEffect(() => {
@@ -1248,9 +1266,7 @@ const LiquidityComponent = ()=>{
             the Slippage Tolerance you choose is [ {slippageTolerance}% ]
           </Alert>
 
-          <Alert variant="primary">
-            estimatedStatus:{estimatedStatus}
-          </Alert>
+
           <Alert variant="primary">
             {liquidityBreakdown && <p>liquidity breakdown</p>}
             {liquidityBreakdown && liquidityBreakdown.map((info) => <p>{info}</p>)}
@@ -1262,9 +1278,15 @@ const LiquidityComponent = ()=>{
             needApproveToken0==true && <mark>
               <Button
                   variant="warning"
-                  onClick={() => {
-                    approve(token0.address, approveAmountToken0, library, account);
-                    setNeedApproveToken0(false);
+                  onClick={async () => {
+                    let state =await approve(token0.address, approveAmountToken0, library, account);
+                    if(state==true){
+                      setNeedApproveToken0(false);
+                      if(needApproveToken1==false){
+                        setButtonContent("add liquidity");
+                        setButtonStatus(true);
+                      }
+                    }
                   }}
               >
                 Approve {token0 && token0.symbol}
@@ -1276,9 +1298,18 @@ const LiquidityComponent = ()=>{
             needApproveToken1==true && <mark>
               <Button
                   variant="warning"
-                  onClick={() => {
-                    approve(token1.address, approveAmountToken1, library, account);
-                    setNeedApproveToken1(false);
+                  onClick={async () => {
+                    let state=await approve(token1.address, approveAmountToken1, library, account);
+                    console.log("state1");
+                    console.log(state);
+
+                    if(state==true){
+                      setNeedApproveToken1(false);
+                      if(needApproveToken0==false){
+                        setButtonContent("add liquidity");
+                        setButtonStatus(true);
+                      }
+                    }
                   }}
               >
                 Approve {token1 && token1.symbol}
