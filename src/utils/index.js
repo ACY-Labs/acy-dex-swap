@@ -239,7 +239,7 @@ export function calculateSlippageAmount(value, slippage) {
 export async function approve(tokenAddress, requiredAmount, library, account) {
   if (requiredAmount === "0") {
     console.log("Unncessary call to approve");
-    return;
+    return true;
   }
 
   let allowance = await getAllowance(
@@ -279,10 +279,15 @@ export async function approve(tokenAddress, requiredAmount, library, account) {
         {
           gasLimit: calculateGasMargin(estimatedGas),
         }
-    );
+    ).catch(()=>{
+      console.log("not approve success");
+        return false;
+    });
+    return true;
+
   } else {
     console.log("Allowance sufficient");
-    return;
+    return true;
   }
 }
 

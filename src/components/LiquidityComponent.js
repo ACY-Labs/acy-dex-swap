@@ -983,6 +983,8 @@ const LiquidityComponent = ()=>{
   const injected = new InjectedConnector({
     supportedChainIds: [1, 3, 4, 5, 42, 80001],
   });
+
+
   useEffect(() => {
     // activate(injected);
   }, []);
@@ -1100,6 +1102,8 @@ const LiquidityComponent = ()=>{
     t1Changed();
 
   },[token1Amount]);
+
+
   useEffect(()=>{
     if(account==undefined){
       setButtonStatus(true);
@@ -1171,6 +1175,9 @@ const LiquidityComponent = ()=>{
                   setToken0Amount(e.target.value);
                 }}
             />
+
+
+
             {token0BalanceShow?
                 <small>Balance: {token0Balance}</small>:
                 <small>not know yet</small>
@@ -1236,6 +1243,7 @@ const LiquidityComponent = ()=>{
             />
             <InputGroup.Text>%</InputGroup.Text>
           </InputGroup>
+
           <Alert variant="danger">
             the Slippage Tolerance you choose is [ {slippageTolerance}% ]
           </Alert>

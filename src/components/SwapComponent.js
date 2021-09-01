@@ -43,7 +43,7 @@ import { BigNumber } from "@ethersproject/bignumber";
 import { parseUnits } from "@ethersproject/units";
 
 // get the estimated amount  of the other token required when swapping, in readable string.
-export function checkSwapGetEstimated(
+export function check(
     inputToken0,
     inputToken1,
     exactIn = true,
@@ -67,13 +67,14 @@ export function checkSwapGetEstimated(
     if(!inputToken0.symbol || !inputToken1.symbol)
         return false;
 
-    if(exactIn && token0Amount=="") return false;
-    if(!exactIn && token1Amount=="") return false;
+    if(exactIn && token0Amount=="0") return false;
+    if(!exactIn && token1Amount=="0") return false;
 
     if (exactIn && (isNaN(parseFloat(token0Amount)))){
         // alert("token0Amount is wrong ");
         return false;
     }
+
 
     if (!exactIn && (isNaN(parseFloat(token1Amount)))){
         // alert("token0Amount is wrong");
@@ -91,17 +92,22 @@ export async function swapGetEstimated(
     chainId,
     library,
     account,
-    setSwapStatus,
-    setSwapBreakdown,
     setToken0Amount,
     setToken1Amount,
-    setSwapButtonContent,
-    setSwapButtonState,
     setNeedApprove,
-    setApproveAmount
+    setApproveAmount,
+    // setEstimatedStatus,
+    setSwapBreakdown,
+    setSwapButtonState,
+    setSwapButtonContent,
+    setSwapStatus
 ) {
+    // setEstimatedStatus("");
     setSwapBreakdown("");
     setSwapStatus("");
+    setSwapButtonState(false);
+    setSwapButtonContent("loading...");
+
     // check uniswap
     console.log(FACTORY_ADDRESS);
     // change slippage from bips (0.01%) into percentage
@@ -109,7 +115,6 @@ export async function swapGetEstimated(
     allowedSlippage = new Percent(allowedSlippage, 10000);
 
     let contract = getRouterContract(library, account);
-
     let {
         address: token0Address,
         symbol: token0Symbol,
@@ -131,27 +136,19 @@ export async function swapGetEstimated(
     console.log(inputToken1);
 
     if(token0IsETH && token1IsETH){
-        // alert("Doesn't support ETH to ETH");
-        setSwapStatus("ETH to ETH is not supported");
+        // setEstimatedStatus("ETH to ETH is not supported");
+        setSwapBreakdown("");
         setSwapButtonState(false);
-        setSwapButtonContent("change tokens");
+        setSwapButtonContent("don't support ETH to ETH");
+        setSwapStatus("");
         return ;
     }
-
     // ================================================
     // wait to change
     // check user account balance
     console.log("------------------ CHECK BALANCE ------------------");
     // Big Number comparison
 
-
-    let userToken0Balance = await getUserTokenBalanceRaw(
-        token0IsETH
-            ? ETHER
-            : new Token(chainId, token0Address, token0Decimal, token0Symbol),
-        account,
-        library
-    );
 
 
     let wethContract;
@@ -163,16 +160,27 @@ export async function swapGetEstimated(
         if (exactIn) setToken1Amount(token0Amount);
         else setToken0Amount(token1Amount);
 
+        let userToken0Balance = await getUserTokenBalanceRaw(
+            token0IsETH
+                ? ETHER
+                : new Token(chainId, token0Address, token0Decimal, token0Symbol),
+            account,
+            library
+        );
+
+
         let userHasSufficientBalance = userToken0Balance.gte(
             parseUnits(token0Amount, token0Decimal)
         );
 
         // quit if user doesn't have enough balance, otherwise this will cause error
         if (!userHasSufficientBalance){
-
             // setSwapStatus("Not enough balance");
+            // setEstimatedStatus("");
+            setSwapBreakdown("");
             setSwapButtonState(false);
-            setSwapButtonContent("Not enough balance");
+            setSwapButtonContent("NOT enough balance");
+            setSwapStatus("");
             return;
         }
 
@@ -180,16 +188,25 @@ export async function swapGetEstimated(
         console.log("token0Amount");
         console.log(token0Amount);
 
-
+        // setEstimatedStatus("change ETH to WETH");
+        setSwapBreakdown("");
         setSwapButtonState(true);
         setSwapButtonContent("WRAP");
+        setSwapStatus("");
         return ;
-
-
     }
     else if(token0Symbol === "WETH" && token1IsETH){
         if (exactIn) setToken1Amount(token0Amount);
         else setToken0Amount(token1Amount);
+
+        let userToken0Balance = await getUserTokenBalanceRaw(
+            token0IsETH
+                ? ETHER
+                : new Token(chainId, token0Address, token0Decimal, token0Symbol),
+            account,
+            library
+        );
+
 
         let userHasSufficientBalance = userToken0Balance.gte(
             parseUnits(token0Amount, token0Decimal)
@@ -198,25 +215,25 @@ export async function swapGetEstimated(
         // quit if user doesn't have enough balance, otherwise this will cause error
         if (!userHasSufficientBalance){
 
-            // setSwapStatus("Not enough balance");
+
+            setSwapBreakdown("");
             setSwapButtonState(false);
             setSwapButtonContent("Not enough balance");
+            setSwapStatus("");
             return;
         }
 
-
+        // setEstimatedStatus("change WETH to ETH");
+        setSwapBreakdown("");
         setSwapButtonState(true);
-        setSwapButtonContent("UNWRAP");
+        setSwapButtonContent("unwrap");
+        setSwapStatus("");
         return ;
 
     }
     // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
     else {
         // use WETH for ETHER to work with Uniswap V2 SDK
-
-        setSwapButtonContent("SWAP");
-        setSwapButtonState(true);
-
 
         const token0 = token0IsETH
             ? WETH[chainId]
@@ -227,7 +244,11 @@ export async function swapGetEstimated(
 
         if (token0.equals(token1)) {
             // alert("the token should not be the same");
-            setSwapStatus("the token should not be the same");
+            // setEstimatedStatus("");
+            setSwapBreakdown("");
+            setSwapButtonState(false);
+            setSwapButtonContent("tokens are same");
+            setSwapStatus("");
             return ;//  exactIn ? token0Amount : token1Amount;
         }
 
@@ -235,8 +256,14 @@ export async function swapGetEstimated(
         const pair = await Fetcher.fetchPairData(token0, token1, library).catch(
             (e) => {
 
-                setSwapStatus(`${token0.symbol} - ${token1.symbol} pool does not exist. Create one?`);
+
+                // alert(`${token0.symbol} - ${token1.symbol} pool does not exist. Create one?`);
+
+                // setEstimatedStatus(`${token0.symbol} - ${token1.symbol} pool does not exist. Create one?`);
+                setSwapBreakdown("");
                 setSwapButtonState(false);
+                setSwapButtonContent("pool doesn't exist");
+                setSwapStatus("");
 
                 return new ACYSwapErrorStatus(
                     `${token0.symbol} - ${token1.symbol} pool does not exist. Create one?`
@@ -308,10 +335,21 @@ export async function swapGetEstimated(
             );
         } catch (e) {
             if (e instanceof InsufficientReservesError) {
-                setSwapStatus("Insufficient reserve!");
+                // setEstimatedStatus("Insufficient reserve!");
+                setSwapBreakdown("");
+                setSwapButtonState(false);
+                setSwapButtonContent("Insufficient liquidity for this trade");
+                setSwapStatus("");
                 console.log("Insufficient reserve!");
             } else {
-                setSwapStatus("Unhandled exception!");
+                alert("Unhandled exception! please contact to the admin");
+
+                // setEstimatedStatus("Unhandled exception! please contact to the admin");
+                setSwapBreakdown("");
+                setSwapButtonState(false);
+                setSwapButtonContent("Unhandled exception!");
+                setSwapStatus("");
+
                 console.log("Unhandled exception!");
                 console.log(e);
             }
@@ -340,7 +378,6 @@ export async function swapGetEstimated(
             setToken1Amount(trade.outputAmount.toExact());
 
             console.log(`Minimum received: ${slippageAdjustedAmount}`);
-
 
 
         } else
@@ -373,6 +410,15 @@ export async function swapGetEstimated(
             console.log(`Maximum pay: ${slippageAdjustedAmount}`);
         }
 
+        let userToken0Balance = await getUserTokenBalanceRaw(
+            token0IsETH
+                ? ETHER
+                : new Token(chainId, token0Address, token0Decimal, token0Symbol),
+            account,
+            library
+        );
+
+
         let userHasSufficientBalance = userToken0Balance.gte(
             parseUnits(token0Amount, token0Decimal)
         );
@@ -380,13 +426,14 @@ export async function swapGetEstimated(
         // quit if user doesn't have enough balance, otherwise this will cause error
         if (!userHasSufficientBalance){
             // setSwapStatus("Not enough balance");
+            setSwapBreakdown("");
             setSwapButtonState(false);
-            setSwapButtonContent("Not enough balance");
+            setSwapButtonContent("Not Enough balance");
+            setSwapStatus("");
             return;
         }
 
         console.log("------------------ BREAKDOWN ------------------");
-
         let { priceImpactWithoutFee, realizedLPFee } =
             computeTradePriceBreakdown(trade);
 
@@ -405,11 +452,14 @@ export async function swapGetEstimated(
                     : trade.inputAmount.currency.symbol
             }`,
         ];
+
+
+        // setEstimatedStatus("you can click the swap button");
         setSwapBreakdown(breakdownInfo);
-        console.log(breakdownInfo);
         setSwapButtonState(true);
         setSwapButtonContent("SWAP");
-        setSwapStatus("you can click the swap button");
+        setSwapStatus("");
+
         console.log("------------------ ALLOWANCE ------------------");
         if (!token0IsETH) {
             let allowance = await getAllowance(
@@ -440,10 +490,14 @@ export async function swapGetEstimated(
                 setApproveAmount(token0AmountToApprove);
                 // when needApprove = true, please show the button of [Approve]
                 setNeedApprove(true);
-                return new ACYSwapErrorStatus("Need approve");
+                // setEstimatedStatus("you need to click approve first");
+                setSwapBreakdown(breakdownInfo);
+                setSwapButtonState(false);
+                setSwapButtonContent("need approve");
+                setSwapStatus("");
+                return;
             }
         }
-
         return ;
     }
 }
@@ -456,7 +510,7 @@ export async function swap(
     chainId,
     library,
     account,
-    setSwapOperatorStatus
+    setSwapStatus
 
 ) {
     let status = await (async () => {
@@ -789,49 +843,43 @@ export async function swap(
         }
     })();
     if (status instanceof ACYSwapErrorStatus) {
-        setSwapOperatorStatus(status.getErrorText());
+        setSwapStatus(status.getErrorText());
     } else {
         console.log(status);
         let url="https://rinkeby.etherscan.io/tx/"+status.hash;
-
-        setSwapOperatorStatus(<a href={url}  target={"_blank"}>view it on etherscan</a>);
+        setSwapStatus(<a href={url}  target={"_blank"}>view it on etherscan</a>);
     }
 }
 
 const SwapComponent = () => {
     let [token0, setToken0] = useState(null);
     let [token1, setToken1] = useState(null);
-
-    let [token0Balance, setToken0Balance] = useState("0");
-    let [token1Balance, setToken1Balance] = useState("0");
-
+    let [token0Balance, setToken0Balance] = useState("not know yet");
+    let [token1Balance, setToken1Balance] = useState("not know yet");
     let [token0BalanceShow,setToken0BalanceShow] = useState(false);
     let [token1BalanceShow,setToken1BalanceShow] = useState(false);
-
-
     let [token0Amount, setToken0Amount] = useState();
     let [token1Amount, setToken1Amount] = useState();
     let [slippageTolerance,setSlippageTolerance]=useState(INITIAL_ALLOWED_SLIPPAGE/100);
-
-    // when exactIn is true, it means the firt line
-    // when exactIn is false, it means the second line
+    //exactIn = true 在第一行输入
+    //exactIn = false 在第二行输入
     let [exactIn, setExactIn] = useState(true);
 
-    let [swapStatus, setSwapStatus] = useState();
     let [needApprove, setNeedApprove] = useState(false);
     let [approveAmount, setApproveAmount] = useState("0");
     // Breakdown shows the estimated information for swap
+
+
+    // let [estimatedStatus,setEstimatedStatus]=useState();
     let [swapBreakdown, setSwapBreakdown] = useState();
-
-    let [swapButtonContent,setSwapButtonContent] = useState("Connect to Wallet");
     let [swapButtonState,setSwapButtonState] = useState(true);
+    let [swapButtonContent,setSwapButtonContent] = useState("Connect to Wallet");
+    let [swapStatus, setSwapStatus] = useState();
 
-    let [swapOperatorStatus,setSwapOperatorStatus]=useState("");
 
     const individualFieldPlaceholder = "Enter amount";
     const dependentFieldPlaceholder = "Estimated value";
     const slippageTolerancePlaceholder="please input a number from 1.00 to 100.00";
-
 
 
     const { account, chainId, library, activate } = useWeb3React();
@@ -851,7 +899,7 @@ const SwapComponent = () => {
         if (!token0 || !token1) return;
         if (!exactIn) return;
 
-        let state=checkSwapGetEstimated(
+        let state=check(
             {
                 ...token0,
                 amount: token0Amount,
@@ -882,22 +930,22 @@ const SwapComponent = () => {
             chainId,
             library,
             account,
-            setSwapStatus,
-            setSwapBreakdown,
             setToken0Amount,
             setToken1Amount,
-            setSwapButtonContent,
-            setSwapButtonState,
             setNeedApprove,
-            setApproveAmount
+            setApproveAmount,
+            setSwapBreakdown,
+            setSwapButtonState,
+            setSwapButtonContent,
+            setSwapStatus
         );
-    }, [token0, token1, token0Amount, token1Amount, exactIn, chainId, library]);
+    }, [token0, token1, token0Amount, token1Amount, slippageTolerance,exactIn, chainId, library,account]);
 
     // token0Amount is changed according to token1Amount
     let t1Changed = useCallback(async () => {
         if (!token0 || !token1) return;
         if (exactIn) return;
-        let state=checkSwapGetEstimated(
+        let state=check(
             {
                 ...token0,
                 amount: token0Amount,
@@ -926,32 +974,39 @@ const SwapComponent = () => {
             chainId,
             library,
             account,
-            setSwapStatus,
-            setSwapBreakdown,
             setToken0Amount,
             setToken1Amount,
-            setSwapButtonContent,
-            setSwapButtonState,
             setNeedApprove,
-            setApproveAmount
+            setApproveAmount,
+            setSwapBreakdown,
+            setSwapButtonState,
+            setSwapButtonContent,
+            setSwapStatus
         );
-    }, [token0, token1, token0Amount, token1Amount, exactIn, chainId, library]);
+    }, [token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library,account]);
 
     useEffect(() => {
+        // setEstimatedStatus("");
+        setSwapBreakdown("");
+        setSwapStatus("");
         t0Changed();
-    }, [token0Amount]);
+    }, [token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library,account]);
 
     useEffect(() => {
+        // setEstimatedStatus("");
+        setSwapBreakdown("");
+        setSwapStatus("");
         t1Changed();
-    }, [token1Amount]);
+    }, [token0, token1, token0Amount, token1Amount,slippageTolerance, exactIn, chainId, library,account]);
 
     useEffect(()=>{
         if(account==undefined){
             setSwapButtonState(true);
             setSwapButtonContent("Connect to Wallet");
+
         }else {
             setSwapButtonState(false);
-            setSwapButtonContent("swap");
+            setSwapButtonContent("choose tokens and amount");
         }
 
     },[account]);
@@ -983,10 +1038,6 @@ const SwapComponent = () => {
                                     onClick={async () => {
                                         if(account==undefined){
                                             alert("please connect to your account");
-                                        }else if(chainId==undefined){
-                                            alert("please connect to rinkey testnet");
-                                        }else if(library==undefined){
-                                            alert("please get your library connected");
                                         }else {
                                             setToken0(token);
                                             setToken0Balance(
@@ -1034,10 +1085,6 @@ const SwapComponent = () => {
                                     onClick={async () => {
                                         if(account==undefined){
                                             alert("please connect to your account");
-                                        }else if(chainId==undefined){
-                                            alert("please connect to rinkey testnet");
-                                        }else if(library==undefined){
-                                            alert("please get your library connected");
                                         }else {
                                             setToken1(token);
                                             setToken1Balance(
@@ -1094,9 +1141,9 @@ const SwapComponent = () => {
           the Slippage Tolerance you choose is [ {slippageTolerance}% ]
         </Alert>
 
-                <Alert variant="info">Swap status: {swapStatus}</Alert>
 
-                <Alert variant="primary">
+
+                <Alert variant="info">
                     Swap breakdown:
                     {swapBreakdown && swapBreakdown.map((info) => <p>{info}</p>)}
                 </Alert>
@@ -1106,7 +1153,12 @@ const SwapComponent = () => {
                         <Button
                             variant="warning"
                             onClick={() => {
-                                approve(token0.address, approveAmount, library, account);
+                                let state = approve(token0.address, approveAmount, library, account);
+                                if(state==true){
+                                    setSwapButtonState(true);
+                                    setSwapButtonContent("SWAP");
+                                    setNeedApprove(false);
+                                }
                             }}
                             disabled={!needApprove}
                         >
@@ -1125,10 +1177,6 @@ const SwapComponent = () => {
                     onClick={() => {
                         if (account==undefined) {
                             activate(injected);
-
-                            setSwapButtonContent("choose tokens and amount");
-                            setSwapButtonState(false);
-
                         } else {
                             swap(
                                 {
@@ -1144,7 +1192,7 @@ const SwapComponent = () => {
                                 chainId,
                                 library,
                                 account,
-                                setSwapOperatorStatus
+                                setSwapStatus
                             );
                         }
                     }
@@ -1154,8 +1202,8 @@ const SwapComponent = () => {
                 </Button>
 
                 <Alert variant="primary">
-                    swapOperatorStatus:
-                    {swapOperatorStatus }
+                    swapStatus
+                    {swapStatus }
                 </Alert>
 
             </Form>
