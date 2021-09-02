@@ -60,7 +60,6 @@ export async function swapGetEstimated(
     setSwapButtonState,
     setSwapButtonContent,
     setSwapStatus,
-
     setPair,
     setRoute,
     setTrade,
@@ -83,65 +82,66 @@ export async function swapGetEstimated(
 
         let contract = getRouterContract(library, account);
         let {
-            address: token0Address,
-            symbol: token0Symbol,
-            decimal: token0Decimal,
-            amount: token0Amount,
+            address: inToken0Address,
+            symbol: inToken0Symbol,
+            decimal: inToken0Decimal,
+            amount: inToken0Amount,
         } = inputToken0;
         let {
-            address: token1Address,
-            symbol: token1Symbol,
-            decimal: token1Decimal,
-            amount: token1Amount,
+            address: inToken1Address,
+            symbol: inToken1Symbol,
+            decimal: inToken1Decimal,
+            amount: inToken1Amount,
         } = inputToken1;
 
         if (!inputToken0.symbol || !inputToken1.symbol)
             return new ACYSwapErrorStatus("please choose tokens");
-        if (exactIn && token0Amount == "0")
+        if (exactIn && inToken0Amount == "0")
             return new ACYSwapErrorStatus("token0Amount is 0");
-        if (!exactIn && token1Amount == "0")
+        if (!exactIn && inToken1Amount == "0")
             return new ACYSwapErrorStatus("token1Amount is 0");
-        if(exactIn && token0Amount == "")
+        if(exactIn && inToken0Amount == "")
             return new ACYSwapErrorStatus("token0Amount is \"\"");
-        if(!exactIn && token1Amount=="")
+        if(!exactIn && inToken1Amount=="")
             return new ACYSwapErrorStatus("token1Amount is \"\"");
-        if (exactIn && (isNaN(parseFloat(token0Amount))))
+        if (exactIn && (isNaN(parseFloat(inToken0Amount))))
             return new ACYSwapErrorStatus("token0Amount is NaN");
-        if (!exactIn && (isNaN(parseFloat(token1Amount))))
+        if (!exactIn && (isNaN(parseFloat(inToken1Amount))))
             return new ACYSwapErrorStatus("token1Amount is NaN");
 
+        console.log(`token0Amount: ${inToken0Amount}`);
+        console.log(`token1Amount: ${inToken1Amount}`);
 
-
-        console.log(`token0Amount: ${token0Amount}`);
-        console.log(`token1Amount: ${token1Amount}`);
-
-        let token0IsETH = token0Symbol === "ETH";
-        let token1IsETH = token1Symbol === "ETH";
+        let token0IsETH = inToken0Symbol === "ETH";
+        let token1IsETH = inToken1Symbol === "ETH";
 
         console.log(inputToken0);
         console.log(inputToken1);
-
-
 
         if (token0IsETH && token1IsETH) {
             setSwapButtonState(false);
             setSwapButtonContent("don't support ETH to ETH");
             return new ACYSwapErrorStatus("don't support ETH to ETH");
         }
-        // if one is ETH and other WETH, use WETH contract's deposit and withdraw
+            // if one is ETH and other WETH, use WETH contract's deposit and withdraw
         // wrap ETH into WETH
-        else if (token0IsETH && token1Symbol === "WETH") {
+        else if (token0IsETH && inToken1Symbol === "WETH") {
             // UI should sync value of ETH and WETH
-            if (exactIn) setToken1Amount(token0Amount);
-            else setToken0Amount(token1Amount);
-
+            if (exactIn) {
+                setToken1Amount(inToken0Amount);
+                inToken1Amount=inToken0Amount;
+            }
+            else {
+                setToken0Amount(inToken1Amount);
+                inToken0Amount=inToken1Amount;
+            }
             console.log("------------------ CHECK BALANCE ------------------");
             // Big Number comparison
 
             let userToken0Balance = await getUserTokenBalanceRaw(
                 token0IsETH
                     ? ETHER
-                    : new Token(chainId, token0Address, token0Decimal, token0Symbol),
+                    : new Token(chainId, inToken0Address, inToken0Decimal, inToken0Symbol),
                 account,
                 library
             );
@@ -149,22 +149,22 @@ export async function swapGetEstimated(
             let userHasSufficientBalance;
             try {
                 userHasSufficientBalance = userToken0Balance.gte(
-                    parseUnits(token0Amount, token0Decimal)
+                    parseUnits(inToken0Amount, inToken0Decimal)
                 );
-
             }catch(e){
                 console.log("this is wrong!");
                 console.log(e);
                 setSwapButtonState(false);
-                setSwapButtonContent(e.fault);
+                if(e.fault==="underflow") setSwapButtonContent(e.fault);
+                else setSwapButtonContent("unknow error");
                 return new ACYSwapErrorStatus(e.fault);
-
-
             };
+
+
 
             console.log(userToken0Balance);
             console.log("token0Amount");
-            console.log(token0Amount);
+            console.log(inToken0Amount);
 
             // quit if user doesn't have enough balance, otherwise this will cause error
             if (!userHasSufficientBalance) {
@@ -176,20 +176,27 @@ export async function swapGetEstimated(
             setSwapButtonState(true);
             setSwapButtonContent("wrap");
 
-            const wethContract = getContract(token1Address, WETHABI, library, account);
+            const wethContract = getContract(inToken1Address, WETHABI, library, account);
             let wrappedAmount;
 
             try{
                 wrappedAmount = BigNumber.from(
-                    parseUnits(token0Amount, token0Decimal)
+                    parseUnits(inToken0Amount, inToken0Decimal)
                 ).toHexString();
             }catch(e){
                 console.log("wrappedAmount!!");
                 console.log(e);
                 setSwapButtonState(false);
-                setSwapButtonContent(e.fault);
-                return new ACYSwapErrorStatus(e.fault);
-            }
+                if(e.fault==="underflow") {
+                    setSwapButtonContent(e.fault);
+                    return new ACYSwapErrorStatus(e.fault);
+                }else{
+                    setSwapButtonContent("unknow error");
+                    return new ACYSwapErrorStatus("unknow error");
+                }
+
+            };
+
 
             setWethContract(wethContract);
             setWrappedAmount(wrappedAmount);
@@ -205,31 +212,42 @@ export async function swapGetEstimated(
             // return result;
             return "Wrap is ok";
         }
-        else if (token0Symbol === "WETH" && token1IsETH) {
+        else if (inToken0Symbol === "WETH" && token1IsETH) {
             console.log("UNWRAP");
-            if (exactIn) setToken1Amount(token0Amount);
-            else setToken0Amount(token1Amount);
+            if (exactIn) {
+                setToken1Amount(inToken0Amount);
+                inToken1Amount=inToken0Amount;
+            }
+            else {
+                setToken0Amount(inToken1Amount);
+                inToken0Amount=inToken1Amount;
+            }
 
             let userToken0Balance = await getUserTokenBalanceRaw(
                 token0IsETH
                     ? ETHER
-                    : new Token(chainId, token0Address, token0Decimal, token0Symbol),
+                    : new Token(chainId, inToken0Address, inToken0Decimal, inToken0Symbol),
                 account,
                 library
             );
 
             let userHasSufficientBalance;
             try{
-               userHasSufficientBalance = userToken0Balance.gte(
-                parseUnits(token0Amount, token0Decimal)
+                userHasSufficientBalance = userToken0Balance.gte(
+                    parseUnits(inToken0Amount, inToken0Decimal)
                 );
             }catch(e){
                 console.log("userHasSufficientBalance!!!");
                 console.log(e);
                 setSwapButtonState(false);
-                setSwapButtonContent(e.fault);
-                return new ACYSwapErrorStatus(e.fault);
-            }
+                if(e.fault==="underflow"){
+                    setSwapButtonContent(e.fault);
+                    return new ACYSwapErrorStatus(e.fault);
+                }else{
+                    setSwapButtonContent("unknow error");
+                    return new ACYSwapErrorStatus("unknow error");
+                }
+            };
 
             // quit if user doesn't have enough balance, otherwise this will cause error
             if (!userHasSufficientBalance) {
@@ -241,22 +259,25 @@ export async function swapGetEstimated(
             setSwapButtonState(true);
             setSwapButtonContent("unwrap");
 
-            const wethContract = getContract(token0Address, WETHABI, library, account);
+            const wethContract = getContract(inToken0Address, WETHABI, library, account);
 
             let wrappedAmount;
             try{
                 wrappedAmount = BigNumber.from(
-                    parseUnits(token0Amount, token0Decimal)
+                    parseUnits(inToken0Amount, inToken0Decimal)
                 ).toHexString();
             }catch(e){
                 console.log("wrappedAmount!!!");
                 console.log(e);
                 setSwapButtonState(false);
-                setSwapButtonContent(e.fault);
-                return new ACYSwapErrorStatus(e.fault);
+                if(e.fault==="underflow") {
+                    setSwapButtonContent(e.fault);
+                    return new ACYSwapErrorStatus(e.fault);
+                }else{
+                    setSwapButtonContent("unknow error");
+                    return new ACYSwapErrorStatus("unknow error");
+                }
             }
-
-
             setWethContract(wethContract);
             setWrappedAmount(wrappedAmount);
 
@@ -275,10 +296,10 @@ export async function swapGetEstimated(
             // use WETH for ETHER to work with Uniswap V2 SDK
             const token0 = token0IsETH
                 ? WETH[chainId]
-                : new Token(chainId, token0Address, token0Decimal, token0Symbol);
+                : new Token(chainId, inToken0Address, inToken0Decimal, inToken0Symbol);
             const token1 = token1IsETH
                 ? WETH[chainId]
-                : new Token(chainId, token1Address, token1Decimal, token1Symbol);
+                : new Token(chainId, inToken1Address, inToken1Decimal, inToken1Symbol);
 
             if (token0.equals(token1)) {
                 setSwapButtonState(false);
@@ -293,8 +314,6 @@ export async function swapGetEstimated(
                     );
                 }
             );
-
-
             if (pair instanceof ACYSwapErrorStatus) {
                 setSwapButtonState(false);
                 setSwapButtonContent("pool doesn't exist");
@@ -318,8 +337,8 @@ export async function swapGetEstimated(
             console.log("------------------ PARSE AMOUNT ------------------");
 
             // convert typed in amount to BigNumbe rusing ethers.js's parseUnits then to string,
-            console.log(token0Amount);
-            console.log(token0Decimal);
+            console.log(inToken0Amount);
+            console.log(inToken0Decimal);
 
             let parsedAmount;
 
@@ -327,18 +346,23 @@ export async function swapGetEstimated(
                 parsedAmount = exactIn
                     ? new TokenAmount(
                         token0,
-                        parseUnits(token0Amount, token0Decimal)
+                        parseUnits(inToken0Amount, inToken0Decimal)
                     ).raw.toString(16)
                     : new TokenAmount(
                         token1,
-                        parseUnits(token1Amount, token1Decimal)
+                        parseUnits(inToken1Amount, inToken1Decimal)
                     ).raw.toString(16);
             }catch(e){
                 console.log("parsedAmount!!!");
                 console.log(e);
                 setSwapButtonState(false);
-                setSwapButtonContent(e.fault);
-                return new ACYSwapErrorStatus(e.fault);
+                if(e.fault==="underflow") {
+                    setSwapButtonContent(e.fault);
+                    return new ACYSwapErrorStatus(e.fault);
+                }else{
+                    setSwapButtonContent("unknow error");
+                    return new ACYSwapErrorStatus("unknow error");
+                }
             }
 
             let inputAmount;
@@ -429,7 +453,7 @@ export async function swapGetEstimated(
             let userToken0Balance = await getUserTokenBalanceRaw(
                 token0IsETH
                     ? ETHER
-                    : new Token(chainId, token0Address, token0Decimal, token0Symbol),
+                    : new Token(chainId, inToken0Address, inToken0Decimal, inToken0Symbol),
                 account,
                 library
             );
@@ -438,7 +462,7 @@ export async function swapGetEstimated(
             let userHasSufficientBalance;
             try{
                 userHasSufficientBalance = userToken0Balance.gte(
-                    parseUnits(token0Amount, token0Decimal)
+                    parseUnits(inToken0Amount, inToken0Decimal)
                 );
             }catch(e){
                 console.log("wrappedAmount!!!");
@@ -481,7 +505,7 @@ export async function swapGetEstimated(
             console.log("------------------ ALLOWANCE ------------------");
             if (!token0IsETH) {
                 let allowance = await getAllowance(
-                    token0Address,
+                    inToken0Address,
                     account,
                     ROUTER_ADDRESS,
                     library,
@@ -496,7 +520,7 @@ export async function swapGetEstimated(
                     ? inputAmount.raw.toString()
                     : slippageAdjustedAmount;
                 let token0approval = await checkTokenIsApproved(
-                    token0Address,
+                    inToken0Address,
                     token0AmountToApprove,
                     library,
                     account
@@ -558,23 +582,23 @@ export async function swap(
 
         let contract = getRouterContract(library, account);
         let {
-            address: token0Address,
-            symbol: token0Symbol,
-            decimal: token0Decimal,
-            amount: token0Amount,
+            address: inToken0Address,
+            symbol: inToken0Symbol,
+            decimal: inToken0Decimal,
+            amount: inToken0Amount,
         } = inputToken0;
         let {
-            address: token1Address,
-            symbol: token1Symbol,
-            decimal: token1Decimal,
-            amount: token1Amount,
+            address: inToken1Address,
+            symbol: inToken1Symbol,
+            decimal: inToken1Decimal,
+            amount: inToken1Amount,
         } = inputToken1;
 
-        console.log(`token0Amount: ${token0Amount}`);
-        console.log(`token1Amount: ${token1Amount}`);
+        console.log(`token0Amount: ${inToken0Amount}`);
+        console.log(`token1Amount: ${inToken1Amount}`);
 
-        let token0IsETH = token0Symbol === "ETH";
-        let token1IsETH = token1Symbol === "ETH";
+        let token0IsETH = inToken0Symbol === "ETH";
+        let token1IsETH = inToken1Symbol === "ETH";
 
         console.log(inputToken0);
         console.log(inputToken1);
@@ -584,7 +608,7 @@ export async function swap(
         console.log("------------------ WRAP OR SWAP  ------------------");
         // if one is ETH and other WETH, use WETH contract's deposit and withdraw
         // wrap ETH into WETH
-        if (token0IsETH && token1Symbol === "WETH") {
+        if (token0IsETH && inToken1Symbol === "WETH") {
             console.log("WRAP");
             // UI should sync value of ETH and WETH
             // if (exactIn) setToken1Amount(token0Amount);
@@ -601,7 +625,7 @@ export async function swap(
             return result;
         }
         // unwrap WETH into ETH
-        else if (token0Symbol === "WETH" && token1IsETH) {
+        else if (inToken0Symbol === "WETH" && token1IsETH) {
             console.log("UNWRAP");
 
             // UI should sync value of ETH and WETH
@@ -622,10 +646,10 @@ export async function swap(
             // use WETH for ETHER to work with Uniswap V2 SDK
             const token0 = token0IsETH
                 ? WETH[chainId]
-                : new Token(chainId, token0Address, token0Decimal, token0Symbol);
+                : new Token(chainId, inToken0Address, inToken0Decimal, inToken0Symbol);
             const token1 = token1IsETH
                 ? WETH[chainId]
-                : new Token(chainId, token1Address, token1Decimal, token1Symbol);
+                : new Token(chainId, inToken1Address, inToken1Decimal, inToken1Symbol);
             console.log(token0);
             console.log(token1);
             // quit if the two tokens are equivalent, i.e. have the same chainId and address

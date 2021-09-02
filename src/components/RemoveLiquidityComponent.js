@@ -1193,12 +1193,8 @@ const RemoveLiquidityComponent = () => {
 
   let [token0BalanceShow,setToken0BalanceShow]=useState(false);
   let [token1BalanceShow,setToken1BalanceShow]=useState(false);
-
   let [exactIn, setExactIn] = useState(true);
-
-
   let [slippageTolerance,setSlippageTolerance]=useState(INITIAL_ALLOWED_SLIPPAGE/100);
-
   // 0到100之间的一个数，removePercent% 表示要移除的比例
   let [removePercent,setRemovePercent] = useState(0);
 
@@ -1208,7 +1204,6 @@ const RemoveLiquidityComponent = () => {
 
   let [liquidityBreakdown, setLiquidityBreakdown] = useState("");
   let [removeLiquidityStatus, setRemoveLiquidityStatus] = useState("");
-
 
   let [signatureData, setSignatureData] = useState(null);
 

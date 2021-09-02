@@ -283,6 +283,7 @@ export async function approve(tokenAddress, requiredAmount, library, account) {
       console.log("not approve success");
         return false;
     });
+
     return true;
 
   } else {
