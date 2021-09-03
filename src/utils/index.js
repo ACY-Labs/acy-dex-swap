@@ -97,6 +97,11 @@ export function getRouterContract(library, account) {
   return getContract(ROUTER_ADDRESS, IUniswapV2Router02ABI, library, account);
 }
 
+export function getPairContract(pairAddress, library, account) {
+  return getContract(pairAddress, IUniswapV2PairABI, library, account);
+}
+
+
 // return gas with 10% added margin in BigNumber
 export function calculateGasMargin(value) {
   return value
@@ -325,8 +330,4 @@ export async function getTokenTotalSupply(token, library, account) {
   let parsedResult = new TokenAmount(token, totalSupply.toString());
 
   return parsedResult;
-}
-
-export function usePairContract(pairAddress, library, account) {
-  return getContract(pairAddress, IUniswapV2PairABI, library, account);
 }
