@@ -277,6 +277,7 @@ export async function getEstimated(
                         );
                     }
                 }
+
                 try{
                     parsedToken0Amount = new TokenAmount(
                         token0,
@@ -900,8 +901,7 @@ const LiquidityComponent = () => {
             setArgs,
             setValue);
 
-
-    }, [token0, token1, token0Amount, token1Amount, slippageTolerance, exactIn, chainId, library, account]);
+    }, [token0, token1, token0Amount, token1Amount, slippageTolerance, needApproveToken0,needApproveToken1,exactIn, chainId, library, account]);
     let t1Changed = useCallback(async () => {
         if (!token0 || !token1) return;
         if (exactIn) return;
@@ -937,13 +937,13 @@ const LiquidityComponent = () => {
             setParsedToken1Amount,
             setArgs,
             setValue);
-    }, [token0, token1, token0Amount, token1Amount, slippageTolerance, exactIn, chainId, library, account]);
+    }, [token0, token1, token0Amount, token1Amount, slippageTolerance,needApproveToken0,needApproveToken1, exactIn, chainId, library, account]);
     useEffect(() => {
         t0Changed();
-    }, [token0, token1, token0Amount, token1Amount, slippageTolerance, exactIn, chainId, library, account]);
+    }, [token0, token1, token0Amount, token1Amount, slippageTolerance, needApproveToken0,needApproveToken1,exactIn, chainId, library, account]);
     useEffect(() => {
         t1Changed();
-    }, [token0, token1, token0Amount, token1Amount, slippageTolerance, exactIn, chainId, library, account]);
+    }, [token0, token1, token0Amount, token1Amount, slippageTolerance,needApproveToken0,needApproveToken1, exactIn, chainId, library, account]);
 
 
     useEffect(() => {
