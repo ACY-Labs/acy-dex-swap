@@ -785,14 +785,14 @@ export async function getAllLiquidityPositions(tokens, chainId, library, account
             account
         );
 
-        let liquidityMinted = pair.getLiquidityMinted(
-            totalSupply,
-            token0Deposited,
-            token1Deposited
-        );
+        // let liquidityMinted = pair.getLiquidityMinted(
+        //     totalSupply,
+        //     token0Deposited,
+        //     token1Deposited
+        // );
 
         let poolTokenPercentage = new Percent(
-            liquidityMinted.raw,
+            userPoolBalance.raw,
             totalSupply.raw
         ).toFixed(4);
 
