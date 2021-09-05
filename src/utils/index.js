@@ -104,6 +104,8 @@ export function getPairContract(pairAddress, library, account) {
 
 // return gas with 10% added margin in BigNumber
 export function calculateGasMargin(value) {
+
+  console.log("just calculateGasMargin");
   return value
       .mul(BigNumber.from(10000).add(BigNumber.from(1000)))
       .div(BigNumber.from(10000));
@@ -331,3 +333,5 @@ export async function getTokenTotalSupply(token, library, account) {
 
   return parsedResult;
 }
+
+

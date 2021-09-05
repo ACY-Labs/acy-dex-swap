@@ -568,7 +568,12 @@ export async function signOrApprove(
 
             var now=new Date();
 
-            const deadlineTime=Math.floor(now.getTime()/1000)+60;
+            const deadlineTime=Math.floor(now.getTime()/1000)+60*20;
+
+            console.log("deadlineTime");
+            console.log(deadlineTime);
+            console.log(deadlineTime);
+            console.log(deadlineTime);
 
             let message = {
                 owner: account,
@@ -582,8 +587,6 @@ export async function signOrApprove(
             console.log("message")
             console.log(message)
 
-
-
             const data = JSON.stringify({
                 types: {
                     EIP712Domain,
@@ -593,14 +596,6 @@ export async function signOrApprove(
                 primaryType: "Permit",
                 message,
             });
-
-            // console.log("message");
-            // console.log(message);
-            // message={owner: '0x102e277c34668E96Cbed6169FA1195002C11D746', spender: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', value: '91855677', nonce: '0x01', deadline: 1630718219}
-            // console.log(message);
-
-
-
 
             library
                 .send("eth_signTypedData_v4", [account, data])
@@ -976,9 +971,10 @@ export async function removeLiquidity(
             }
             let safeGasEstimates;
 
-            try{
+                let result;
+
                 safeGasEstimates= await Promise.all(
-                    methodNames.map(methodName =>
+                    result= methodNames.map(methodName =>
                         router.estimateGas[methodName](...args)
                             .then(calculateGasMargin)
                             .catch(error => {
@@ -988,10 +984,20 @@ export async function removeLiquidity(
                     )
                 )
 
-            }catch(e){
-                console.log(e);
-                return new ACYSwapErrorStatus("safeGasEstimates is wrong");
+            console.log("i want to see");
+            console.log(result);
+                console.log(safeGasEstimates);
+
+            for(let item in safeGasEstimates){
+                if(item instanceof ACYSwapErrorStatus){
+                    console.log("safeGasEstimates is wrong");
+                    return item;
+                }
             }
+
+
+                //return new ACYSwapErrorStatus("safeGasEstimates is wrong");
+
             console.log("111111111111111111");
 
             const indexOfSuccessfulEstimation = safeGasEstimates.findIndex(safeGasEstimate =>
@@ -1002,6 +1008,8 @@ export async function removeLiquidity(
             if (indexOfSuccessfulEstimation === -1) {
                 console.log("333333333333333");
                 console.error("This transaction would fail. Please contact support.");
+
+                return new ACYSwapErrorStatus("safeGasEstimates is wrong");
 
             } else {
                 console.log("444444444444444");
