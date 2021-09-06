@@ -51,18 +51,8 @@ export async function getPositionAndBalance(
     } = inToken1;
 
 
-    const token0 = new Token(
-        chainId,
-        inToken0Address,
-        inToken0Decimal,
-        inToken0Symbol
-    );
-    const token1 = new Token(
-        chainId,
-        inToken1Address,
-        inToken1Decimal,
-        inToken1Symbol
-    );
+    const token0 = new Token(chainId, inToken0Address, inToken0Decimal, inToken0Symbol);
+    const token1 = new Token(chainId, inToken1Address, inToken1Decimal, inToken1Symbol);
 
     if (token0.equals(token1)) {
         setBalance("0");
@@ -104,27 +94,21 @@ export async function getPositionAndBalance(
 
         userPoolBalance = new TokenAmount(pair.liquidityToken, userPoolBalance);
         let totalPoolTokens = await getTokenTotalSupply(pair.liquidityToken, library, account);
-
         let token0Deposited = pair.getLiquidityValue(pair.token0, totalPoolTokens, userPoolBalance, false);
         let token1Deposited = pair.getLiquidityValue(pair.token1, totalPoolTokens, userPoolBalance, false);
-
         let totalSupply = await getTokenTotalSupply(pair.liquidityToken, library, account);
 
         console.log(token0Deposited);
 
         /*
+        不能把getLiquidityValue的结果作为getLiquiditMinted的输入值
         let liquidityMinted = pair.getLiquidityMinted(
             totalSupply,
             token0Deposited,
             token1Deposited
         );
          */
-
-        let poolTokenPercentage = new Percent(
-            userPoolBalance.raw,
-            totalSupply.raw
-        ).toFixed(4);
-
+        let poolTokenPercentage = new Percent(userPoolBalance.raw, totalSupply.raw).toFixed(4);
 
         console.log("user pool balance");
         console.log(userPoolBalance);
@@ -133,7 +117,6 @@ export async function getPositionAndBalance(
 
         console.log("symbol");
 //        console.log(liquidityMinted.token.symbol);
-
 
         userNonZeroLiquidityPositions.push([
             `pool: ${pair.token0.symbol}/${pair.token1.symbol}`,
@@ -165,6 +148,8 @@ export async function getPositionAndBalance(
 export async function getEstimated(
     inputToken0,
     inputToken1, // 这里是不包含amount信息的
+    token0Amount,
+    token1Amount,
     index,
     percent,
     amount,
@@ -182,15 +167,6 @@ export async function getEstimated(
     setButtonStatus,
     setButtonContent
 ) {
-    setToken0Amount("loading...")
-    setToken1Amount("loading...");
-    setBalance("0")
-    setBalanceShow(false);
-    setBreakdown("");
-    setNeedApprove(false);
-    setButtonStatus(false);
-    setButtonContent("loading...");
-
     let {
         address: inToken0Address,
         symbol: inToken0Symbol,
@@ -202,16 +178,55 @@ export async function getEstimated(
         decimal: inToken1Decimal,
     } = inputToken1;
 
-    if (account == undefined) return;
-    if (!inToken0Symbol || !inToken1Symbol) return false;
+    if (account == undefined) {
+        setToken0Amount("0");
+        setToken1Amount("0");
+        setBalance("0");
+        setBalanceShow(false);
+        setNeedApprove(false);
+        setButtonStatus(false);
+        setButtonContent("please connect your wallet");
+        return;
+    }
+    if (!inToken0Symbol || !inToken1Symbol) {
+        setToken0Amount("0");
+        setToken1Amount("0");
+        setBalance("0");
+        setBalanceShow(false);
+        setNeedApprove(false);
+        setButtonStatus(false);
+        setButtonContent("one or more token is missing");
+        return false;
+    }
+    //init
+    setToken0Amount("loading...")
+    setToken1Amount("loading...");
+    setBalance("0")
+    setBalanceShow(false);
+    setBreakdown("");
+    setNeedApprove(false);
+    setButtonStatus(false);
+    setButtonContent("loading...");
 
     let token0IsETH = inToken0Symbol === "ETH";
     let token1IsETH = inToken1Symbol === "ETH";
-    if (token0IsETH && token1IsETH) return;
+    if (token0IsETH && token1IsETH) {
+        setToken0Amount("0");
+        setToken1Amount("0");
+        setNeedApprove(false);
+        setButtonStatus(false);
+        setButtonContent("the tokens are both ETH");
+        return;
+    }
     if (
         (token0IsETH && inToken1Symbol === "WETH") ||
         (inToken0Symbol === "WETH" && token1IsETH)
     ) {
+        setToken0Amount("0");
+        setToken1Amount("0");
+        setNeedApprove(false);
+        setButtonStatus(false);
+        setButtonContent("invalid pair of ETH/WETH");
         return;
     }
     // ETH <-> Non-WETH ERC20     OR     Non-WETH ERC20 <-> Non-WETH ERC20
@@ -223,12 +238,11 @@ export async function getEstimated(
         const token1 = token1IsETH
             ? WETH[chainId]
             : new Token(chainId, inToken1Address, inToken1Decimal, inToken1Symbol);
+
         if (token0.equals(token1)) {
-            setToken0Amount("");
-            setToken1Amount("");
-            // setBalance
+            setToken0Amount("0");
+            setToken1Amount("0");
             setBalanceShow(false);
-            setBreakdown("");
             setNeedApprove(false);
             setButtonStatus(false);
             setButtonContent("tokens can't be the same");
@@ -248,32 +262,18 @@ export async function getEstimated(
                 );
             });
         if (pair instanceof ACYSwapErrorStatus) {
-
-            setToken0Amount("");
-            setToken1Amount("");
+            setToken0Amount("0");
+            setToken1Amount("0");
             setBalance("");
             setBalanceShow(false);
-            // setPercent,
-            // setAmount,
-            setBreakdown("");
             setNeedApprove(false);
             setButtonStatus(false);
             setButtonContent("pool does not exist");
             return;
         }
 
-
         console.log("this is pair");
         console.log(pair);
-        let pairContract = getPairContract(
-            pair.liquidityToken.address,
-            library,
-            account
-        );
-        console.log(pairContract);
-
-        const nonce = await pairContract.nonces(account);
-
 // 流动性代币的总量
         let totalPoolTokens = await getTokenTotalSupply(
             pair.liquidityToken,
@@ -286,6 +286,17 @@ export async function getEstimated(
             account,
             library
         );
+
+        if(userPoolBalance.isZero()){
+            setToken0Amount("0");
+            setToken1Amount("0");
+            setBalance("0");
+            setBalanceShow(true);
+            setNeedApprove(false);
+            setButtonStatus(false);
+            setButtonContent("user pool balance is zero");
+            return;
+        }
         // 用户拥有的流动性代币
         userPoolBalance = new TokenAmount(pair.liquidityToken, userPoolBalance);
 
@@ -295,14 +306,19 @@ export async function getEstimated(
         setBalance(userPoolBalance.toExact());
         setBalanceShow(true);
 
+        console.log(token0);
+        console.log(pair.token0);
+        console.log(token0==pair.token0);
+
+
         let token0Deposited = pair.getLiquidityValue(
-            pair.token0,
+            token0,
             totalPoolTokens,
             userPoolBalance,
             false
         );
         let token1Deposited = pair.getLiquidityValue(
-            pair.token1,
+            token1,
             totalPoolTokens,
             userPoolBalance,
             false
@@ -324,12 +340,12 @@ export async function getEstimated(
         console.log(userPoolBalance.raw);
         console.log(userPoolBalance.toExact());
 
-        // 这里可能出问题
         let liquidityAmount;
+        let percentToRemove;
 
         if (index === 0) {
             let shang = percent * 100;
-            let percentToRemove = new Percent(
+            percentToRemove = new Percent(
                 shang.toString(),
                 "10000"
             );
@@ -353,19 +369,84 @@ export async function getEstimated(
                 parseUnits(amount, userPoolBalance.token.decimals)
             );
 
-            let percent = new Percent(
+           percentToRemove = new Percent(
                 liquidityAmount.raw,
                 userPoolBalance.raw
             );
-
             console.log("hello");
             console.log(liquidityAmount.raw);
             console.log(userPoolBalance.raw);
-            setPercent(percent.toSignificant(2));
-
+            setPercent(percentToRemove.toSignificant(2));
         }
 
+        let first = new TokenAmount(token0, parseUnits("1", inToken0Decimal));
+        let firstPrice = pair.priceOf(token0).quote(first);
+        let second = new TokenAmount(token1, parseUnits("1", inToken1Decimal));
+        let secondPrice = pair.priceOf(token1).quote(second);
 
+        let token0TokenAmount = new TokenAmount(
+            token0,
+            percentToRemove.multiply(token0Deposited.raw).quotient
+        );
+
+        let token1TokenAmount = new TokenAmount(
+            token1,
+            percentToRemove.multiply(token1Deposited.raw).quotient
+        );
+
+        let parsedToken0Amount;
+        let parsedToken1Amount;
+
+        parsedToken0Amount =
+            token0 === ETHER
+                ? CurrencyAmount.ether(token0TokenAmount.raw)
+                : token0TokenAmount;
+        parsedToken1Amount =
+            token1 === ETHER
+                ? CurrencyAmount.ether(token1TokenAmount.raw)
+                : token1TokenAmount;
+
+        setToken0Amount(parsedToken0Amount.toExact());
+        setToken1Amount(parsedToken1Amount.toExact());
+
+
+
+
+
+        setBreakdown([
+            'you will receive',
+            `${parsedToken0Amount.toExact()} ${token0.symbol}`,
+            `${parsedToken1Amount.toExact()} ${token1.symbol}`,
+            `Output is estimated. If the price changes by more than 0.5% your transaction will revert.`,
+            `pair token burned  ${amount}`,
+            `price0: 1${inToken0Symbol} = ${firstPrice.toExact()} ${inToken1Symbol}`,
+            `price1: 1${inToken1Symbol} = ${secondPrice.toExact()} ${inToken0Symbol}`,
+        ]);
+
+        console.log("CHECK IF HAVE ENOUGH BALANCE");
+        console.log(pair.liquidityToken);
+        let pairBalance = await getUserTokenBalanceRaw(
+            pair.liquidityToken,
+            account,
+            library
+        );
+        let needAmount = parseUnits(amount,pair.liquidityToken.decimals);
+        console.log(pairBalance);
+        console.log(needAmount);
+
+        let  userHasSufficientBalance =pairBalance.gte(
+            needAmount
+        );
+
+
+        if(!userHasSufficientBalance){
+            setNeedApprove(false);
+            setButtonStatus(false);
+            setButtonContent("not enough balance");
+            return ;
+        }
+
+        console.log("GET ALLOWANCE");
         let liquidityApproval = await checkTokenIsApproved(
             liquidityAmount.token.address,
             liquidityAmount.raw.toString(),
@@ -374,26 +455,19 @@ export async function getEstimated(
         );
 
         if (!liquidityApproval) {
-          //  alert("approve is not ok!");
-            setToken0Amount("not operator :(");
-            setToken1Amount("not operator :(");
             setNeedApprove(true);
             setButtonStatus(false);
             setButtonContent("need approve");
-            return new ACYSwapErrorStatus(
-                'need approve for liquidityApproval'
-            );
+            return;
         }
-        setToken0Amount("wow");
-        setToken1Amount("wow");
 
-        // setPercent,
-        // setAmount,
-        setBreakdown("");
         setNeedApprove(false);
         setButtonStatus(true);
         setButtonContent("remove Liquidity");
+        return;
     }
+    return;
+
 }
 
 
@@ -537,6 +611,7 @@ export async function signOrApprove(
             //     setButtonStatus(true);
             // }
             // return "just approve";
+
             const nonce = await pairContract.nonces(account);
 
             const EIP712Domain = [
@@ -605,9 +680,6 @@ export async function signOrApprove(
                     console.log("sign!!!!!");
                     console.log("signature");
                     console.log(signature);
-
-
-
                     setSignatureData({
                         v: signature.v,
                         r: signature.r,
@@ -615,13 +687,13 @@ export async function signOrApprove(
                         deadline: deadlineTime//1630718219//Math.floor(new Date().getTime() / 1000) + 60//1630717588 //Math.floor(new Date().getTime() / 1000) + 60,
                     });
 
-                    console.log(deadlineTime);
-                   console.log(Math.floor(new Date().getTime() / 1000) + 60);
-                   console.log(Math.floor(new Date().getTime() / 1000) + 60);
-                   console.log(Math.floor(new Date().getTime() / 1000) + 60);
-                   console.log(Math.floor(new Date().getTime() / 1000) + 60);
-                   console.log(Math.floor(new Date().getTime() / 1000) + 60);
-                   console.log(Math.floor(new Date().getTime() / 1000) + 60);
+                   //  console.log(deadlineTime);
+                   // console.log(Math.floor(new Date().getTime() / 1000) + 60);
+                   // console.log(Math.floor(new Date().getTime() / 1000) + 60);
+                   // console.log(Math.floor(new Date().getTime() / 1000) + 60);
+                   // console.log(Math.floor(new Date().getTime() / 1000) + 60);
+                   // console.log(Math.floor(new Date().getTime() / 1000) + 60);
+                   // console.log(Math.floor(new Date().getTime() / 1000) + 60);
 
 
                     setNeedApprove(false);
@@ -645,6 +717,7 @@ export async function signOrApprove(
                             setNeedApprove(false);
                             setButtonContent("remove liquidity");
                             setButtonStatus(true);
+                            return "approve success";
                         }
                     } else {
                         alert("error code 4001!");
@@ -653,18 +726,18 @@ export async function signOrApprove(
                     }
                 });
 
-
-            let allowance = await getAllowance(
-                liquidityAmount.token.address,
-                account, // owner
-                ROUTER_ADDRESS, //spender
-                library, // provider
-                account // active account
-            );
-
-            console.log(`ALLOWANCE FOR TOKEN ${liquidityAmount.token.address}`);
-            console.log(allowance);
-            return "maybe";
+            //
+            // let allowance = await getAllowance(
+            //     liquidityAmount.token.address,
+            //     account, // owner
+            //     ROUTER_ADDRESS, //spender
+            //     library, // provider
+            //     account // active account
+            // );
+            //
+            // console.log(`ALLOWANCE FOR TOKEN ${liquidityAmount.token.address}`);
+            // console.log(allowance);
+            return "end";
 
 
         }
@@ -869,8 +942,8 @@ export async function removeLiquidity(
             // parsedToken0Amount = token0TokenAmount;
             // parsedToken1Amount = token1TokenAmount;
 
-            setToken0Amount(parsedToken0Amount.toExact());
-            setToken1Amount(parsedToken1Amount.toExact());
+            // setToken0Amount(parsedToken0Amount.toExact());
+            // setToken1Amount(parsedToken1Amount.toExact());
 
 
             let liquidityApproval = await checkTokenIsApproved(
@@ -1088,30 +1161,30 @@ const RemoveLiquidityComponent = () => {
         //  activate(injected);
     }, []);
 
-    useEffect(() => {
-        async function getUserRemoveLiquidityPositions() {
-            if (account == undefined) {
-                // alert("please connect to your account");
-                return;
-            }
-            if (!token0 || !token1) {
-                // alert("you need to choose both of the tokens");
-                return;
-            }
-            await getPositionAndBalance(
-                token0,
-                token1,
-                chainId,
-                account,
-                library,
-                setBalance,
-                setBalanceShow,
-                setPosition
-            );
-        }
-
-        getUserRemoveLiquidityPositions();
-    }, [token0, token1, chainId, account, library]);
+    // useEffect(() => {
+    //     async function getUserRemoveLiquidityPositions() {
+    //         if (account == undefined) {
+    //             // alert("please connect to your account");
+    //             return;
+    //         }
+    //         if (!token0 || !token1) {
+    //             // alert("you need to choose both of the tokens");
+    //             return;
+    //         }
+    //         await getPositionAndBalance(
+    //             token0,
+    //             token1,
+    //             chainId,
+    //             account,
+    //             library,
+    //             setBalance,
+    //             setBalanceShow,
+    //             setPosition
+    //         );
+    //     }
+    //
+    //     getUserRemoveLiquidityPositions();
+    // }, [token0, token1, chainId, account, library]);
 
     let inputChange = useCallback(async () => {
         await getEstimated(
@@ -1121,6 +1194,8 @@ const RemoveLiquidityComponent = () => {
             {
                 ...token1
             },// 这里是不包含amount信息的
+            token0Amount,
+            token1Amount,
             index,
             percent,
             amount,
@@ -1137,12 +1212,12 @@ const RemoveLiquidityComponent = () => {
             setNeedApprove,
             setButtonStatus,
             setButtonContent);
-    }, [token0, token1, index, percent, amount, chainId, library, account]);
+    }, [token0, token1, index, percent, amount, needApprove,slippageTolerance,chainId, library, account]);
 
 
     useEffect(() => {
         inputChange();
-    }, [percent, amount]);
+    }, [token0, token1, index, percent, amount, needApprove,slippageTolerance,chainId, library, account]);
 
 
     return (
@@ -1227,10 +1302,10 @@ const RemoveLiquidityComponent = () => {
                     {balanceShow && <p>{balance}</p>}
                 </div>
 
-                <Alert variant="info">
-                    {<mark>position</mark>}
-                    {position && position.map((info) => <p>{info}</p>)}
-                </Alert>
+                {/*<Alert variant="info">*/}
+                {/*    {<mark>position</mark>}*/}
+                {/*    {position && position.map((info) => <p>{info}</p>)}*/}
+                {/*</Alert>*/}
 
                 <InputGroup size="sm" className="mb-3">
                     <InputGroup.Text id="inputGroup-sizing-sm">Slippage tolerance </InputGroup.Text>
@@ -1247,6 +1322,11 @@ const RemoveLiquidityComponent = () => {
                 </InputGroup>
                 <Alert variant="danger">
                     the Slippage Tolerance you choose is [ {slippageTolerance}% ]
+                </Alert>
+
+                <Alert variant="info">
+                    {<mark>breakdown</mark>}
+                    {breakdown && breakdown.map((info) => <p>{info}</p>)}
                 </Alert>
 
 
