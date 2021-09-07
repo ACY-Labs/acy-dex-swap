@@ -34,7 +34,8 @@ export async function getPositionAndBalance(
     setBalance,
     setBalanceShow,
     setPosition
-) {
+) 
+{
     setBalance("0");
     setBalanceShow(false);
     setPosition("");
@@ -178,16 +179,6 @@ export async function getEstimated(
         decimal: inToken1Decimal,
     } = inputToken1;
 
-    if (account == undefined) {
-        setToken0Amount("0");
-        setToken1Amount("0");
-        setBalance("0");
-        setBalanceShow(false);
-        setNeedApprove(false);
-        setButtonStatus(false);
-        setButtonContent("please connect your wallet");
-        return;
-    }
     if (!inToken0Symbol || !inToken1Symbol) {
         setToken0Amount("0");
         setToken1Amount("0");
@@ -1071,24 +1062,20 @@ export async function removeLiquidity(
 
                 //return new ACYSwapErrorStatus("safeGasEstimates is wrong");
 
-            console.log("111111111111111111");
+
 
             const indexOfSuccessfulEstimation = safeGasEstimates.findIndex(safeGasEstimate =>
                 BigNumber.isBigNumber(safeGasEstimate)
             )
 
-            console.log("22222222222222222222");
-            if (indexOfSuccessfulEstimation === -1) {
-                console.log("333333333333333");
-                console.error("This transaction would fail. Please contact support.");
 
+            if (indexOfSuccessfulEstimation === -1) {
+                console.error("This transaction would fail. Please contact support.");
                 return new ACYSwapErrorStatus("safeGasEstimates is wrong");
 
             } else {
-                console.log("444444444444444");
                 const methodName = methodNames[indexOfSuccessfulEstimation]
                 const safeGasEstimate = safeGasEstimates[indexOfSuccessfulEstimation]
-
 
                 let result = await router[methodName](...args, {
                     gasLimit: safeGasEstimate
@@ -1186,7 +1173,11 @@ const RemoveLiquidityComponent = () => {
     //     getUserRemoveLiquidityPositions();
     // }, [token0, token1, chainId, account, library]);
 
+
     let inputChange = useCallback(async () => {
+        if(!token0||!token1) return;
+
+
         await getEstimated(
             {
                 ...token0
@@ -1219,6 +1210,17 @@ const RemoveLiquidityComponent = () => {
         inputChange();
     }, [token0, token1, index, percent, amount, needApprove,slippageTolerance,chainId, library, account]);
 
+    useEffect(()=>{
+        if (account == undefined) {
+            setNeedApprove(false);
+            setButtonStatus(true);
+            setButtonContent("Connect to Wallet");
+        } else {
+            setNeedApprove(false);
+            setButtonStatus(false);
+            setButtonContent("choose tokens and amount");
+        }
+    },[account]);
 
     return (
         <div>
@@ -1357,6 +1359,12 @@ const RemoveLiquidityComponent = () => {
                 <Button
                     variant="success"
                     onClick={async () => {
+                        if(account==undefined){
+                            activate(injected);
+                            
+                        }else{
+
+                     
 
                         await removeLiquidity(
                             {...token0,},
@@ -1376,6 +1384,7 @@ const RemoveLiquidityComponent = () => {
                             setButtonContent,
                             setRemoveStatus
                         );
+                    }
 
                     }}
                     disabled={!buttonStatus}
