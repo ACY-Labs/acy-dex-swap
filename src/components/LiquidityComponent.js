@@ -1102,6 +1102,8 @@ const LiquidityComponent = () => {
                         <Button
                             variant="warning"
                             onClick={async () => {
+
+                                
                                 let state = await approve(token0.address, approveAmountToken0, library, account);
                                 
                                 if (state == true) {
